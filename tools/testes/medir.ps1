@@ -1,7 +1,8 @@
-﻿# Medição de memória e CPU do app publicado (Fase 1, caso 1.4).
-# Uso: .\tools\testes\medir.ps1 [-SemAparar]   (a janela abre e fecha só por linha de comando, sem foco)
+﻿# Medição de memória e CPU do app publicado (Fase 1, caso 1.4; Fase 2, caso 2.9 com -ComSom).
+# Uso: .\tools\testes\medir.ps1 [-SemAparar] [-ComSom]   (a janela abre e fecha só por linha de comando, sem foco)
+# -ComSom: dois tocadores de teste (silêncio) tocam durante a rodada inteira; a janela passa a ler e soltar as sessões em cada ciclo.
 # Cada rodada: 10 s parado -> memória; 30 s parado -> CPU média; 20 ciclos (abrir sem foco, 1 s, fechar, 3 s) -> memória após os ciclos 5 e 20.
-param([switch]$SemAparar)
+param([switch]$SemAparar, [switch]$ComSom)
 . "$PSScriptRoot\lib.ps1"
 $ErrorActionPreference = 'Stop'
 
@@ -14,9 +15,11 @@ function Mem {
 
 try {
   StopAll
-  $label = if ($SemAparar) { 'sem-aparar' } else { 'normal' }
+  StopPlayers
+  $label = $(if ($SemAparar) { 'sem-aparar' } else { 'normal' }) + $(if ($ComSom) { '+com-som' } else { '' })
   if ($SemAparar) { StartApp @('--sem-aparar') } else { StartApp }
   $p = MainProc
+  if ($ComSom) { PrepararFerramentas; StartPlayer 'MX-teste A' | Out-Null; StartPlayer 'MX-teste B' -B | Out-Null }
   Start-Sleep -Seconds 10
   $m10 = Mem
   # CPU: 30 s parado
@@ -43,5 +46,7 @@ try {
     'Crescimento5a20_WsPriv_MB' = [math]::Round($m20.WsPrivMB - $m5.WsPrivMB, 1)
   } | Format-List
 } finally {
+  StopPlayers
   StopAll
+  "processos restantes: app=$((AppProcs).Count) tocadores=$(PlayersAbertos)"
 }

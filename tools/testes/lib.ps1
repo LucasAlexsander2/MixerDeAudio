@@ -74,3 +74,94 @@ function Shot([IntPtr]$h, [string]$name) {
   $hdc = $g.GetHdc(); [MW]::PrintWindow($h, $hdc, 2) | Out-Null; $g.ReleaseHdc($hdc)
   $path = "$script:out\$name.png"; $bmp.Save($path); $g.Dispose(); $bmp.Dispose(); $path
 }
+
+# ---------------- Fase 2: sessões de áudio, tocadores de teste e linhas da janela ----------------
+# Segurança: o volume e o mudo só mudam em tocadores de teste (nome "MX-teste ...", tocar.cs). Os apps reais do usuário
+# só são lidos. Os tocadores tocam silêncio.
+$script:ferr = "$script:out\ferr"
+$script:players = New-Object System.Collections.ArrayList
+
+# Publica tocar.cs, a cópia tocar-b.cs (outro .exe) e sessoes.cs em %TEMP%\mixer-check\ferr (só se mudaram).
+function PrepararFerramentas {
+  New-Item -ItemType Directory -Force $script:ferr | Out-Null
+  Copy-Item "$PSScriptRoot\tocar.cs" "$script:ferr\tocar-b.cs" -Force
+  foreach ($nome in 'tocar', 'tocar-b', 'sessoes') {
+    $fonte = if ($nome -eq 'tocar-b') { "$script:ferr\tocar-b.cs" } else { "$PSScriptRoot\$nome.cs" }
+    $dest = "$script:ferr\$nome-bin"
+    $exe = "$dest\$nome.exe"
+    if ((Test-Path $exe) -and (Get-Item $exe).LastWriteTime -gt (Get-Item $fonte).LastWriteTime) { continue }
+    if ($nome -ne 'tocar-b') { Copy-Item $fonte "$script:ferr\$nome.cs" -Force; $fonte = "$script:ferr\$nome.cs" }
+    $r = & dotnet publish $fonte -o $dest -v q 2>&1
+    if (-not (Test-Path $exe)) { throw "Falha ao publicar $nome`: $($r | Select-Object -Last 5)" }
+  }
+}
+
+# Lista as sessões de todas as saídas ativas (pid, nome, estado, volume, mudo).
+function Sessoes {
+  & "$script:ferr\sessoes-bin\sessoes.exe" listar | ForEach-Object {
+    $p = $_ -split '\|'
+    if ($p.Count -ge 5) {
+      [pscustomobject]@{ Pid = [int]$p[0]; Nome = $p[1]; Estado = $p[2]; Volume = [double]::Parse($p[3], [Globalization.CultureInfo]::InvariantCulture); Mudo = ($p[4] -eq 'sim') }
+    }
+  }
+}
+function SessionOf([int]$procId) { Sessoes | Where-Object { $_.Pid -eq $procId } | Select-Object -First 1 }
+# Muda a sessão de um tocador de teste de fora do app (o sessoes.exe recusa qualquer outro processo).
+function DefinirSessao([int]$procId, [string]$volume, [string]$mudo = '') {
+  $a = @('definir', "$procId", $volume); if ($mudo) { $a += $mudo }
+  & "$script:ferr\sessoes-bin\sessoes.exe" @a | Out-Null
+  $LASTEXITCODE
+}
+
+# Inicia um tocador de teste (silêncio) e espera a sessão dele aparecer com o nome. -B usa o .exe alternativo (tocar-b).
+function StartPlayer([string]$nome, [switch]$B, [int]$segundos = 900) {
+  $exeName = if ($B) { 'tocar-b' } else { 'tocar' }
+  $p = Start-Process "$script:ferr\$exeName-bin\$exeName.exe" -ArgumentList @('--nome', "`"$nome`"", '--segundos', "$segundos") -PassThru -WindowStyle Hidden
+  [void]$script:players.Add($p)
+  WaitFor { $s = SessionOf $p.Id; $s -and $s.Nome -eq $nome } 8 | Out-Null
+  $p
+}
+# Encerra só os tocadores iniciados pelo roteiro.
+function StopPlayers {
+  foreach ($p in $script:players) { try { if (-not $p.HasExited) { $p.Kill() } } catch {} }
+  $script:players.Clear()
+}
+function PlayersAbertos { @(Get-Process tocar, tocar-b -ErrorAction SilentlyContinue).Count }
+
+# Linhas da janela (UI Automation, sem clique): AutomationElement de cada SessionRow.
+function RowElements([IntPtr]$h) {
+  $root = $AE::FromHandle($h)
+  $c = New-Object Windows.Automation.PropertyCondition ($AE::AutomationIdProperty), 'SessionRow'
+  @($root.FindAll($TS::Descendants, $c))
+}
+function Rows([IntPtr]$h) { @(RowElements $h | ForEach-Object { $_.Current.Name }) }
+function RowElement([IntPtr]$h, [string]$nome) { RowElements $h | Where-Object { $_.Current.Name -eq $nome } | Select-Object -First 1 }
+function RowChild($row, [string]$id) {
+  $c = New-Object Windows.Automation.PropertyCondition ($AE::AutomationIdProperty), $id
+  $row.FindFirst($TS::Descendants, $c)
+}
+function RowVolume([IntPtr]$h, [string]$nome) {
+  $row = RowElement $h $nome; if (-not $row) { return $null }
+  (RowChild $row 'SessionVolume').GetCurrentPattern([Windows.Automation.RangeValuePattern]::Pattern).Current.Value
+}
+function RowValueText([IntPtr]$h, [string]$nome) {
+  $row = RowElement $h $nome; if (-not $row) { return $null }
+  (RowChild $row 'SessionValue').Current.Name
+}
+function RowMuteName([IntPtr]$h, [string]$nome) {
+  $row = RowElement $h $nome; if (-not $row) { return $null }
+  (RowChild $row 'SessionMute').Current.Name
+}
+function AssertTocador([string]$nome) { if (-not $nome.StartsWith('MX-teste')) { throw "RECUSADO: '$nome' nao e um tocador de teste." } }
+# RangeValuePattern.SetValue: sem clique. Só em tocador de teste.
+function SetRowVolume([IntPtr]$h, [string]$nome, [double]$valor) {
+  AssertTocador $nome
+  $row = RowElement $h $nome; if (-not $row) { throw "linha '$nome' nao encontrada" }
+  (RowChild $row 'SessionVolume').GetCurrentPattern([Windows.Automation.RangeValuePattern]::Pattern).SetValue($valor)
+}
+# TogglePattern.Toggle: sem clique. Só em tocador de teste.
+function ToggleRowMute([IntPtr]$h, [string]$nome) {
+  AssertTocador $nome
+  $row = RowElement $h $nome; if (-not $row) { throw "linha '$nome' nao encontrada" }
+  (RowChild $row 'SessionMute').GetCurrentPattern([Windows.Automation.TogglePattern]::Pattern).Toggle()
+}

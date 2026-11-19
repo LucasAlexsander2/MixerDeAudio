@@ -2,7 +2,10 @@ using System;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Input;
+using MixerDeAudio.Audio;
 using MixerDeAudio.Interop;
+using MixerDeAudio.Services;
+using MixerDeAudio.ViewModels;
 using Windows.Graphics;
 using Windows.System;
 using WinRT.Interop;
@@ -18,16 +21,35 @@ public sealed partial class FlyoutWindow : Window
     public const double WidthDip = 360;
     public const double HeightDip = 480;
 
+    public SessionListViewModel ViewModel { get; }
+
+    /// <summary>Quantidade de apps (linhas) e de sessões lidas ao abrir, para o log (D23).</summary>
+    public int LoadedApps => ViewModel.Rows.Count;
+    public int LoadedSessions => _tracker.SessionCount;
+
     private readonly Action<string, bool> _onClosed;
     private string _reason = "sistema";
     private bool _lostFocus;
     private bool _closedRaised;
+    private readonly SessionTracker _tracker = new();
+    private AudioSessionMonitor? _monitor;
 
     /// <param name="onClosed">Chamado uma vez, ao fechar, com o motivo e se foi por perda de foco.</param>
     public FlyoutWindow(Action<string, bool> onClosed)
     {
         _onClosed = onClosed;
+
+        // O monitor de áudio existe só com a janela aberta (D1): criado aqui, solto no Closed.
+        _monitor = new AudioSessionMonitor(DispatcherQueue, _tracker);
+        ViewModel = new SessionListViewModel(_tracker, _monitor.SetVolume, _monitor.SetMute);
         InitializeComponent();
+
+        // Ligações feitas pelo código: o x:Bind no nível da janela só é aplicado no Loading, que pode vir tarde demais.
+        SessionList.ItemsSource = ViewModel.Rows;
+        ViewModel.PropertyChanged += OnViewModelChanged;
+        UpdateEmptyText();
+        try { _monitor.Start(); }
+        catch (Exception ex) { Log.Write($"ERRO COM ao listar sessões: {ex}"); }
 
         Title = "Mixer de Áudio";
         SystemBackdrop = new Microsoft.UI.Xaml.Media.MicaBackdrop();
@@ -75,6 +97,13 @@ public sealed partial class FlyoutWindow : Window
         Close();
     }
 
+    private void OnViewModelChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(SessionListViewModel.EmptyVisibility)) UpdateEmptyText();
+    }
+
+    private void UpdateEmptyText() => EmptyText.Visibility = ViewModel.EmptyVisibility;
+
     private void OnActivated(object sender, WindowActivatedEventArgs args)
     {
         if (args.WindowActivationState == WindowActivationState.Deactivated)
@@ -93,6 +122,11 @@ public sealed partial class FlyoutWindow : Window
         Activated -= OnActivated;
         Closed -= OnClosed;
         Root.KeyDown -= OnKeyDown;
+        // D1: soltar o áudio antes de avisar o App (que agenda a devolução de memória).
+        ViewModel.PropertyChanged -= OnViewModelChanged;
+        ViewModel.Dispose();
+        _monitor?.Dispose();
+        _monitor = null;
         if (_closedRaised) return;
         _closedRaised = true;
         _onClosed(_reason, _lostFocus);

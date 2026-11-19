@@ -20,6 +20,11 @@
     <Compile Include="..\MixerDeAudio\Flyout\FlyoutPlacement.cs" Link="Flyout\FlyoutPlacement.cs" />
     <Compile Include="..\MixerDeAudio\Flyout\FlyoutToggleGate.cs" Link="Flyout\FlyoutToggleGate.cs" />
     <Compile Include="..\MixerDeAudio\Services\CommandLine.cs" Link="Services\CommandLine.cs" />
+    <Compile Include="..\MixerDeAudio\Audio\SessionInfo.cs" Link="Audio\SessionInfo.cs" />
+    <Compile Include="..\MixerDeAudio\Audio\SessionTracker.cs" Link="Audio\SessionTracker.cs" />
+    <Compile Include="..\MixerDeAudio\Audio\VolumeEchoFilter.cs" Link="Audio\VolumeEchoFilter.cs" />
+    <Compile Include="..\MixerDeAudio\Audio\AppNameResolver.cs" Link="Audio\AppNameResolver.cs" />
+    <Compile Include="..\MixerDeAudio\Audio\VolumeGlyph.cs" Link="Audio\VolumeGlyph.cs" />
   </ItemGroup>
 
 </Project>

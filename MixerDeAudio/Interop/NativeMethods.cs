@@ -10,6 +10,7 @@ internal static partial class NativeMethods
     public const int DWMWCP_ROUND = 2;
     public const uint MONITOR_DEFAULTTONEAREST = 2;
     public const int MDT_EFFECTIVE_DPI = 0;
+    public const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
 
     [StructLayout(LayoutKind.Sequential)]
     public struct POINT
@@ -41,6 +42,20 @@ internal static partial class NativeMethods
 
     [LibraryImport("kernel32.dll")]
     public static partial IntPtr GetCurrentProcess();
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    public static partial IntPtr OpenProcess(uint desiredAccess, [MarshalAs(UnmanagedType.Bool)] bool inheritHandle, uint processId);
+
+    [LibraryImport("kernel32.dll", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool QueryFullProcessImageNameW(IntPtr process, uint flags, [Out] char[] exeName, ref uint size);
+
+    [LibraryImport("kernel32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool CloseHandle(IntPtr handle);
+
+    [LibraryImport("shlwapi.dll", StringMarshalling = StringMarshalling.Utf16)]
+    public static partial int SHLoadIndirectString(string source, [Out] char[] outBuffer, uint outBufferSize, IntPtr reserved);
 
     /// <summary>Escala do monitor (DPI efetivo / 96) no ponto dado; 1,0 se o Windows não responder.</summary>
     public static double GetScaleAt(int x, int y)

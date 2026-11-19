@@ -107,8 +107,11 @@ public partial class App : Application
             _trimTimer?.Stop();
             TrayIconService.SetEfficiencyMode(false);
 
+            var timer = System.Diagnostics.Stopwatch.StartNew();
             var rect = ComputePlacement(atCursor);
             _flyout = new FlyoutWindow(OnFlyoutClosed);
+            timer.Stop();
+            Log.Write($"sessoes carregadas (apps={_flyout.LoadedApps}, sessoes={_flyout.LoadedSessions}, {timer.ElapsedMilliseconds} ms)");
             _flyout.Present(rect, activate);
             Log.Write("janela aberta");
         });

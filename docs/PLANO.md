@@ -37,7 +37,7 @@ App de bandeja para o Windows 11. Um clique no ícone abre uma janelinha (~360 p
 | Fase | Conteúdo | Estado |
 |---|---|---|
 | 1 | Projeto WinUI 3, ícone na bandeja, janelinha abrindo e fechando, medição inicial | concluída (teste do usuário aprovado em 18/11/2026) |
-| 2 | Apps tocando som, com volume e mudo individuais (NAudio, por eventos) | — |
+| 2 | Apps tocando som, com volume e mudo individuais (NAudio, por eventos) | concluída (teste do usuário aprovado em 19/11/2026) |
 | 3 | Volume geral e troca da saída padrão | — |
 | 4 | Roteamento de saída por app (IAudioPolicyConfig) | — |
 | 5 | Configurações e dispositivos favoritos | — |
