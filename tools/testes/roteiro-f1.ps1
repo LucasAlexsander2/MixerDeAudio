@@ -36,11 +36,11 @@ try {
   $dentro = $r.L -ge $wa.L -and $r.T -ge $wa.T -and $r.R -le $wa.R -and $r.B -le $wa.B
   $encostado = [math]::Abs($wa.R - $margem - $r.R) -le 12 -and [math]::Abs($wa.B - $margem - $r.B) -le 12
   $larguraOk = [math]::Abs($w - 360 * $scale) -le 2
-  $root = FindById $h 'FlyoutRoot'; $title = FindById $h 'FlyoutTitle'
+  $root = FindById $h 'FlyoutRoot'; $title = FindById $h 'DeviceList'  # Fase 3: o título saiu (D14); o topo agora é a fileira de saídas
   $semFoco = $fgAntes -eq $fgDepois
   $shot = Shot $h 'f1-janela'
   $ok = $achou -and $procs -eq 1 -and $root -and $title -and $larguraOk -and $dentro -and $encostado -and $semFoco -and (LogCount 'janela aberta') -ge 1
-  Resultado '1.2 Abrir' ([bool]$ok) ("achou=$achou processos=$procs FlyoutRoot=$([bool]$root) FlyoutTitle=$([bool]$title) rect=($($r.L),$($r.T))-($($r.R),$($r.B)) ${w}x${ht} escala=$scale larguraOk=$larguraOk dentro=$dentro encostado=$encostado areaTrabalho=($($wa.L),$($wa.T))-($($wa.R),$($wa.B)) foco igual=$semFoco log=$(LogCount 'janela aberta') captura=$shot")
+  Resultado '1.2 Abrir' ([bool]$ok) ("achou=$achou processos=$procs FlyoutRoot=$([bool]$root) DeviceList=$([bool]$title) rect=($($r.L),$($r.T))-($($r.R),$($r.B)) ${w}x${ht} escala=$scale larguraOk=$larguraOk dentro=$dentro encostado=$encostado areaTrabalho=($($wa.L),$($wa.T))-($($wa.R),$($wa.B)) foco igual=$semFoco log=$(LogCount 'janela aberta') captura=$shot")
 
   # 1.3 Fechar
   Cmd '--fechar'

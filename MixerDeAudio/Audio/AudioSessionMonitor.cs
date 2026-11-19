@@ -10,6 +10,8 @@ namespace MixerDeAudio.Audio;
 /// <summary>
 /// Liga o NAudio ao <see cref="SessionTracker"/> (D16). Existe só com a janela aberta (D1): ao abrir lista as
 /// sessões de todas as saídas ativas (D2) e se inscreve nos eventos; o <see cref="Dispose"/> solta tudo.
+/// Desde a Fase 3 não tem enumerador próprio: as saídas vêm do <see cref="DeviceMonitor"/> (D1), por
+/// <see cref="AddDevice"/> e <see cref="RemoveDevice"/> (D4).
 /// Toda chamada COM acontece na thread da tela (D4): os tratadores de evento só copiam os valores e enfileiram.
 /// </summary>
 internal sealed class AudioSessionMonitor : IDisposable
@@ -17,6 +19,7 @@ internal sealed class AudioSessionMonitor : IDisposable
     private sealed class Entry
     {
         public required string Id;
+        public required string DeviceId;
         public required AudioSessionControl Control;
         public required Handler Handler;
         public float Volume;
@@ -28,9 +31,7 @@ internal sealed class AudioSessionMonitor : IDisposable
     private readonly VolumeEchoFilter _echo = new();
     private readonly ProcessInfo _processes = new();
     private readonly Dictionary<string, Entry> _entries = new(StringComparer.Ordinal);
-    private readonly List<MMDevice> _devices = new();
-    private readonly List<(AudioSessionManager Manager, AudioSessionManager.SessionCreatedDelegate Handler)> _managers = new();
-    private MMDeviceEnumerator? _enumerator;
+    private readonly Dictionary<string, (AudioSessionManager Manager, AudioSessionManager.SessionCreatedDelegate Handler)> _managers = new(StringComparer.Ordinal);
     private volatile bool _disposed;
 
     public AudioSessionMonitor(DispatcherQueue queue, SessionTracker tracker)
@@ -39,52 +40,76 @@ internal sealed class AudioSessionMonitor : IDisposable
         _tracker = tracker;
     }
 
-    /// <summary>Lê as sessões de todas as saídas ativas e se inscreve nos eventos. Na thread da tela.</summary>
-    public void Start()
+    /// <summary>Lê as sessões das saídas dadas e se inscreve nos eventos. Na thread da tela.</summary>
+    public void Start(IEnumerable<MMDevice> devices)
     {
-        _enumerator = new MMDeviceEnumerator();
-        using var collection = _enumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active);
-        for (var i = 0; i < collection.Count; i++)
+        foreach (var device in devices) AddDevice(device);
+    }
+
+    /// <summary>Uma saída entrou (ou existia ao abrir): lê as sessões dela e se inscreve em "sessão nova" (D4).</summary>
+    public void AddDevice(MMDevice device)
+    {
+        if (_disposed) return;
+        try
         {
-            try
-            {
-                var device = collection[i];
-                _devices.Add(device);
-                var manager = device.AudioSessionManager;
+            var deviceId = device.ID;
+            if (_managers.ContainsKey(deviceId)) return;
+            var manager = device.AudioSessionManager;
 
-                // D7: a lista de sessões precisa ser lida antes de se inscrever em "sessão nova".
-                var sessions = manager.Sessions;
-                for (var s = 0; s < sessions.Count; s++)
-                {
-                    try { AddSession(sessions[s]); }
-                    catch (Exception ex) { Log.Write($"ERRO COM ao ler sessão: {ex.Message}"); }
-                }
-
-                AudioSessionManager.SessionCreatedDelegate onCreated = (_, _) => OnSessionCreated(manager);
-                manager.OnSessionCreated += onCreated;
-                _managers.Add((manager, onCreated));
-            }
-            catch (Exception ex)
+            // D7: a lista de sessões precisa ser lida antes de se inscrever em "sessão nova".
+            var sessions = manager.Sessions;
+            for (var s = 0; s < sessions.Count; s++)
             {
-                Log.Write($"ERRO COM ao abrir saída de áudio: {ex.Message}");
+                try { AddSession(deviceId, sessions[s]); }
+                catch (Exception ex) { Log.Write($"ERRO COM ao ler sessão: {ex.Message}"); }
             }
+
+            AudioSessionManager.SessionCreatedDelegate onCreated = (_, _) => OnSessionCreated(deviceId);
+            manager.OnSessionCreated += onCreated;
+            _managers[deviceId] = (manager, onCreated);
         }
+        catch (Exception ex)
+        {
+            Log.Write($"ERRO COM ao abrir saída de áudio: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Uma saída saiu: tira as sessões dela da lista e solta o gerenciador, pelo mesmo caminho do
+    /// <see cref="RemoveEntry"/> (D4). As sessões também podem ter chegado desconectadas antes; os dois sentidos funcionam.
+    /// </summary>
+    public void RemoveDevice(string deviceId)
+    {
+        if (_disposed) return;
+        if (_managers.Remove(deviceId, out var m))
+        {
+            try { m.Manager.OnSessionCreated -= m.Handler; }
+            catch (Exception ex) { Log.Write($"ERRO COM ao cancelar sessão nova: {ex.Message}"); }
+        }
+        var ids = new List<string>();
+        foreach (var entry in _entries.Values)
+            if (entry.DeviceId == deviceId) ids.Add(entry.Id);
+        foreach (var id in ids) RemoveEntry(id);
+        if (m.Manager is not null) SafeDispose(m.Manager);
     }
 
     // ---- Eventos do Windows (threads de fundo): só copiam e enfileiram (D4) ----
 
     // Desvio do D4: o NAudio 3.x entrega a sessão nova como IAudioSessionControl, que é interna (não dá para criar o
     // AudioSessionControl aqui). O tratador só enfileira e a thread da tela relê a lista do gerenciador.
-    private void OnSessionCreated(AudioSessionManager manager) => Post(() => Rescan(manager));
+    private void OnSessionCreated(string deviceId) => Post(() => Rescan(deviceId));
 
-    /// <summary>Relê as sessões do gerenciador e adiciona as que ainda não estão na lista.</summary>
-    private void Rescan(AudioSessionManager manager)
+    /// <summary>Relê as sessões do gerenciador da saída e adiciona as que ainda não estão na lista.</summary>
+    private void Rescan(string deviceId)
     {
+        // A saída pode ter saído entre o evento e esta chamada (D4): sem gerenciador, nada a fazer.
+        if (!_managers.TryGetValue(deviceId, out var m)) return;
+        var manager = m.Manager;
         manager.RefreshSessions();
         var sessions = manager.Sessions;
         for (var s = 0; s < sessions.Count; s++)
         {
-            try { AddSession(sessions[s]); }
+            try { AddSession(deviceId, sessions[s]); }
             catch (Exception ex) { Log.Write($"ERRO COM ao ler sessão nova: {ex.Message}"); }
         }
     }
@@ -123,7 +148,7 @@ internal sealed class AudioSessionMonitor : IDisposable
 
     // ---- Na thread da tela ----
 
-    private void AddSession(AudioSessionControl control)
+    private void AddSession(string deviceId, AudioSessionControl control)
     {
         var added = false;
         try
@@ -142,7 +167,7 @@ internal sealed class AudioSessionMonitor : IDisposable
 
             var handler = new Handler(this, id);
             control.RegisterEventClient(handler);
-            _entries[id] = new Entry { Id = id, Control = control, Handler = handler, Volume = volume, Muted = muted };
+            _entries[id] = new Entry { Id = id, DeviceId = deviceId, Control = control, Handler = handler, Volume = volume, Muted = muted };
             added = true;
             _tracker.Add(new SessionInfo(id, pid, proc.ExePath, name, volume, muted, state, isSystem));
         }
@@ -246,13 +271,13 @@ internal sealed class AudioSessionMonitor : IDisposable
         catch (Exception ex) { Log.Write($"ERRO COM no Dispose: {ex.Message}"); }
     }
 
-    /// <summary>Solta tudo, na ordem do D16: inscrições, sessões, gerenciadores, saídas e enumerador.</summary>
+    /// <summary>Solta tudo, na ordem do D16: inscrições, sessões e gerenciadores (saídas e enumerador são do DeviceMonitor).</summary>
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
 
-        foreach (var (manager, handler) in _managers)
+        foreach (var (manager, handler) in _managers.Values)
         {
             try { manager.OnSessionCreated -= handler; }
             catch (Exception ex) { Log.Write($"ERRO COM ao cancelar sessão nova: {ex.Message}"); }
@@ -264,12 +289,9 @@ internal sealed class AudioSessionMonitor : IDisposable
         }
         foreach (var entry in _entries.Values) SafeDispose(entry.Control);
         _entries.Clear();
-        foreach (var (manager, _) in _managers) SafeDispose(manager);
+        foreach (var (manager, _) in _managers.Values) SafeDispose(manager);
         _managers.Clear();
-        foreach (var device in _devices) SafeDispose(device);
-        _devices.Clear();
-        SafeDispose(_enumerator);
-        _enumerator = null;
+        // As saídas e o enumerador são do DeviceMonitor, que recebe o Dispose depois deste (D1).
         _processes.Clear();
     }
 }

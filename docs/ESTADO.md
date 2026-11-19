@@ -1,6 +1,6 @@
 # Estado do projeto
 
-**Fase atual:** Fase 1 (bandeja e janelinha) concluída. Fase 2 (apps com volume e mudo) concluída (teste do usuário aprovado em 19/11/2026). Detalhes em `docs/fases/fase-1.md` e `docs/fases/fase-2.md`; plano em `docs/PLANO.md`.
+**Fase atual:** Fases 1, 2 e 3 concluídas (Fase 3, volume geral e troca da saída padrão: teste do usuário aprovado em 19/11/2026). Próxima: Fase 4 (roteamento de saída por app). Detalhes em `docs/fases/fase-1.md`, `fase-2.md` e `fase-3.md`; plano em `docs/PLANO.md`.
 
 ## Comandos
 
@@ -57,3 +57,15 @@ Medição com dois tocadores tocando (build publicado; MB):
 | 2,8 / 74,7 | 0,003% | 2,5 / 115,8 | 1,4 / 124,8 | -1,1 / +9,0 |
 
 Os bytes privados passam de 5 MB entre os ciclos 5 e 20, mas ficam estáveis depois (série de 50 ciclos: 120 → 127 até o ciclo 20, 126 no ciclo 50). A contagem de handles sobe ~4 por abertura mesmo sem áudio (WinUI): ponto para a Fase 6.
+
+## Fase 3: comandos e medição (19/11/2026)
+
+Novos: `roteiro-f3.ps1` (casos 3.1 a 3.6, o 3.5 roda o roteiro-f2; `-SemMedicao` pula o 3.6), `medir.ps1 -Ciclos N` (também registra handles), `sessoes.exe dispositivos` e `sessoes.exe geral <volume>` (trava de 0,02). Os roteiros nunca trocam a saída padrão nem mexem no mudo geral. Testes unitários: 95. Abertura: 137 a 150 ms. O `IMMNotificationClient` é interno no NAudio 3.3.0: usa-se `CreateNotificationClient(false)`. Detalhes em `docs/fases/fase-3.md`, seção 7.
+
+Medição com dois tocadores, 50 ciclos (MB):
+
+| Parado 10 s: WS priv / bytes priv | CPU parada | Ciclo 5: WS priv / bytes priv | Ciclo 20: WS priv / bytes priv | Ciclo 50: WS priv / bytes priv | Handles parado / 5 / 20 / 50 |
+|---|---|---|---|---|---|
+| 2,9 / 75,8 | 0% | 2,6 / 120,3 | 1,7 / 128,4 | 1,4 / 131,3 | 614 / 1273 / 1318 / 1406 |
+
+WS privado 5 a 20: -0,9 MB; bytes privados 20 a 50: +2,9 MB (limite 3). Handles só registrados, para a Fase 6.

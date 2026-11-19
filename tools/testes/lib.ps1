@@ -165,3 +165,53 @@ function ToggleRowMute([IntPtr]$h, [string]$nome) {
   $row = RowElement $h $nome; if (-not $row) { throw "linha '$nome' nao encontrada" }
   (RowChild $row 'SessionMute').GetCurrentPattern([Windows.Automation.TogglePattern]::Pattern).Toggle()
 }
+
+# ---------------- Fase 3: saídas de áudio e volume geral ----------------
+# Segurança: nunca troca a saída padrão e nunca mexe no mudo geral. O volume geral só recebe o toque mínimo
+# (até 2 pontos de diferença do valor atual), e quem muda tem que devolver o valor original num bloco finally.
+
+# Saídas ativas pelo sessoes.exe: Id, Curto, Completo, Formato, Padrao, Volume (0 a 1), Mudo.
+function Devices {
+  & "$script:ferr\sessoes-bin\sessoes.exe" dispositivos | ForEach-Object {
+    $p = $_ -split '\|'
+    if ($p.Count -ge 7) {
+      [pscustomobject]@{ Id = $p[0]; Curto = $p[1]; Completo = $p[2]; Formato = [int]$p[3]; Padrao = ($p[4] -eq 'sim')
+        Volume = [double]::Parse($p[5], [Globalization.CultureInfo]::InvariantCulture); Mudo = ($p[6] -eq 'sim') }
+    }
+  }
+}
+# Muda o volume geral de fora do app (o sessoes.exe recusa mais de 0,02 de diferença). Devolve o código de saída.
+function DefinirGeral([string]$volume) {
+  & "$script:ferr\sessoes-bin\sessoes.exe" geral $volume | Out-Null
+  $LASTEXITCODE
+}
+# Botões das saídas na janela (UI Automation, sem clique): Nome (completo), Texto (nome curto) e Ativo.
+function DeviceButtons([IntPtr]$h) {
+  $root = $AE::FromHandle($h)
+  $c = New-Object Windows.Automation.PropertyCondition ($AE::AutomationIdProperty), 'DeviceButton'
+  @($root.FindAll($TS::Descendants, $c)) | ForEach-Object {
+    $texto = $_.FindFirst($TS::Descendants, (New-Object Windows.Automation.PropertyCondition ($AE::ControlTypeProperty), ([Windows.Automation.ControlType]::Text)))
+    [pscustomobject]@{
+      Nome = $_.Current.Name
+      Texto = if ($texto) { $texto.Current.Name } else { '' }
+      Ativo = ($_.GetCurrentPattern([Windows.Automation.TogglePattern]::Pattern).Current.ToggleState -eq [Windows.Automation.ToggleState]::On)
+    }
+  }
+}
+# Volume geral mostrado pela janela (0 a 100) e estado do mudo (só leitura).
+function MasterValue([IntPtr]$h) {
+  $e = FindById $h 'MasterVolume'; if (-not $e) { return $null }
+  $e.GetCurrentPattern([Windows.Automation.RangeValuePattern]::Pattern).Current.Value
+}
+function MasterMuted([IntPtr]$h) {
+  $e = FindById $h 'MasterMute'; if (-not $e) { return $null }
+  $e.GetCurrentPattern([Windows.Automation.TogglePattern]::Pattern).Current.ToggleState -eq [Windows.Automation.ToggleState]::On
+}
+function MasterText([IntPtr]$h) { $e = FindById $h 'MasterValue'; if ($e) { $e.Current.Name } else { $null } }
+# RangeValuePattern.SetValue no volume geral, sem clique. Só aceita até ±2 em relação ao valor atual (toque mínimo).
+function SetMasterValue([IntPtr]$h, [double]$valor) {
+  $e = FindById $h 'MasterVolume'; if (-not $e) { throw 'volume geral nao encontrado' }
+  $pat = $e.GetCurrentPattern([Windows.Automation.RangeValuePattern]::Pattern)
+  if ([math]::Abs($valor - $pat.Current.Value) -gt 2) { throw "RECUSADO: SetMasterValue so aceita ate 2 pontos de diferenca (atual $($pat.Current.Value), pedido $valor)." }
+  $pat.SetValue($valor)
+}

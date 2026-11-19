@@ -25,6 +25,9 @@
     <Compile Include="..\MixerDeAudio\Audio\VolumeEchoFilter.cs" Link="Audio\VolumeEchoFilter.cs" />
     <Compile Include="..\MixerDeAudio\Audio\AppNameResolver.cs" Link="Audio\AppNameResolver.cs" />
     <Compile Include="..\MixerDeAudio\Audio\VolumeGlyph.cs" Link="Audio\VolumeGlyph.cs" />
+    <Compile Include="..\MixerDeAudio\Audio\DeviceInfo.cs" Link="Audio\DeviceInfo.cs" />
+    <Compile Include="..\MixerDeAudio\Audio\DeviceTracker.cs" Link="Audio\DeviceTracker.cs" />
+    <Compile Include="..\MixerDeAudio\Audio\DeviceGlyph.cs" Link="Audio\DeviceGlyph.cs" />
   </ItemGroup>
 
 </Project>

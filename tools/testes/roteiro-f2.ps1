@@ -1,4 +1,4 @@
-# Roteiro de tela da Fase 2 (casos 2.1 a 2.8; o 2.9 é o medir.ps1 -ComSom).
+﻿# Roteiro de tela da Fase 2 (casos 2.1 a 2.8; o 2.9 é o medir.ps1 -ComSom).
 # Usa o build publicado em publicado\ e os tocadores de teste (silêncio) de tocar.cs.
 # Sem teclas nem cliques reais, sem trazer janela para a frente. NUNCA muda volume ou mudo de app que não seja
 # tocador de teste (os apps reais só são lidos). Encerra o app e os tocadores sempre, também em caso de erro.
@@ -41,7 +41,7 @@ try {
   $semSistema = @($linhas | Where-Object { $_ -ne 'Sons do sistema' })
   $ordenado = @($semSistema | Sort-Object { $_.ToLowerInvariant() })
   $ordemOk = $ordemOk -and (($semSistema -join '|').ToLowerInvariant() -eq (($ordenado -join '|').ToLowerInvariant()))
-  $m = [regex]::Matches((LogLines | Out-String), 'sessoes carregadas \(apps=(\d+), sessoes=(\d+), (\d+) ms\)')
+  $m = [regex]::Matches((LogLines | Out-String), 'sessoes carregadas \(apps=(\d+), sessoes=(\d+), (?:saidas=\d+, )?(\d+) ms\)')
   $ms = if ($m.Count -gt 0) { [int]$m[$m.Count - 1].Groups[3].Value } else { -1 }
   $apps = if ($m.Count -gt 0) { [int]$m[$m.Count - 1].Groups[1].Value } else { -1 }
   $shot = Shot $h 'f2-janela'

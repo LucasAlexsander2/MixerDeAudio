@@ -22,16 +22,20 @@ public sealed partial class FlyoutWindow : Window
     public const double HeightDip = 480;
 
     public SessionListViewModel ViewModel { get; }
+    public DeviceListViewModel Devices { get; }
+    public MasterVolumeViewModel Master { get; }
 
     /// <summary>Quantidade de apps (linhas) e de sessões lidas ao abrir, para o log (D23).</summary>
     public int LoadedApps => ViewModel.Rows.Count;
     public int LoadedSessions => _tracker.SessionCount;
+    public int LoadedDevices => Devices.Buttons.Count;
 
     private readonly Action<string, bool> _onClosed;
     private string _reason = "sistema";
     private bool _lostFocus;
     private bool _closedRaised;
     private readonly SessionTracker _tracker = new();
+    private DeviceMonitor? _deviceMonitor;
     private AudioSessionMonitor? _monitor;
 
     /// <param name="onClosed">Chamado uma vez, ao fechar, com o motivo e se foi por perda de foco.</param>
@@ -39,16 +43,32 @@ public sealed partial class FlyoutWindow : Window
     {
         _onClosed = onClosed;
 
-        // O monitor de áudio existe só com a janela aberta (D1): criado aqui, solto no Closed.
+        // Os monitores de áudio existem só com a janela aberta (D1): criados aqui, soltos no Closed.
+        // O DeviceMonitor vem primeiro (dono do enumerador) e recebe o Dispose por último (Fase 3, D1).
+        _deviceMonitor = new DeviceMonitor(DispatcherQueue);
         _monitor = new AudioSessionMonitor(DispatcherQueue, _tracker);
         ViewModel = new SessionListViewModel(_tracker, _monitor.SetVolume, _monitor.SetMute);
+        Master = new MasterVolumeViewModel(_deviceMonitor.SetMasterVolume, _deviceMonitor.SetMasterMute);
         InitializeComponent();
 
         // Ligações feitas pelo código: o x:Bind no nível da janela só é aplicado no Loading, que pode vir tarde demais.
+        try { _deviceMonitor.Start(); }
+        catch (Exception ex) { Log.Write($"ERRO COM ao listar saídas: {ex}"); }
+        Devices = new DeviceListViewModel(_deviceMonitor.Tracker, _deviceMonitor.SetDefaultDevice);
+        DeviceList.ItemsSource = Devices.Buttons;
+        MasterHost.ItemsSource = new[] { Master };
+        Devices.PropertyChanged += OnDevicesChanged;
+        UpdateNoDeviceText();
+        _deviceMonitor.MasterChanged += Master.Apply;
+        _deviceMonitor.DeviceAdded += _monitor.AddDevice;
+        _deviceMonitor.DeviceRemoved += _monitor.RemoveDevice;
+        // O volume geral já foi lido no Start, antes da ligação acima: aplica o valor atual.
+        _deviceMonitor.PublishCurrentMaster();
+
         SessionList.ItemsSource = ViewModel.Rows;
         ViewModel.PropertyChanged += OnViewModelChanged;
         UpdateEmptyText();
-        try { _monitor.Start(); }
+        try { _monitor.Start(_deviceMonitor.Devices); }
         catch (Exception ex) { Log.Write($"ERRO COM ao listar sessões: {ex}"); }
 
         Title = "Mixer de Áudio";
@@ -104,6 +124,17 @@ public sealed partial class FlyoutWindow : Window
 
     private void UpdateEmptyText() => EmptyText.Visibility = ViewModel.EmptyVisibility;
 
+    private void OnDevicesChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(DeviceListViewModel.NoDeviceVisibility)) UpdateNoDeviceText();
+    }
+
+    private void UpdateNoDeviceText()
+    {
+        NoDeviceText.Visibility = Devices.NoDeviceVisibility;
+        DeviceList.Visibility = Devices.ListVisibility;
+    }
+
     private void OnActivated(object sender, WindowActivatedEventArgs args)
     {
         if (args.WindowActivationState == WindowActivationState.Deactivated)
@@ -124,9 +155,22 @@ public sealed partial class FlyoutWindow : Window
         Root.KeyDown -= OnKeyDown;
         // D1: soltar o áudio antes de avisar o App (que agenda a devolução de memória).
         ViewModel.PropertyChanged -= OnViewModelChanged;
+        Devices.PropertyChanged -= OnDevicesChanged;
+        if (_deviceMonitor is not null)
+        {
+            _deviceMonitor.MasterChanged -= Master.Apply;
+            if (_monitor is not null)
+            {
+                _deviceMonitor.DeviceAdded -= _monitor.AddDevice;
+                _deviceMonitor.DeviceRemoved -= _monitor.RemoveDevice;
+            }
+        }
         ViewModel.Dispose();
+        Devices.Dispose();
         _monitor?.Dispose();
         _monitor = null;
+        _deviceMonitor?.Dispose(); // por último: é o dono do enumerador (D1)
+        _deviceMonitor = null;
         if (_closedRaised) return;
         _closedRaised = true;
         _onClosed(_reason, _lostFocus);

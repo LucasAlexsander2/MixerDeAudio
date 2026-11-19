@@ -31,6 +31,7 @@ App de bandeja para o Windows 11. Um clique no ícone abre uma janelinha (~360 p
 | A6 | **Instância única** pelo `AppInstance` do Windows App SDK; abrir o `.exe` de novo abre a janelinha na primeira cópia. |
 | A7 | **Lógica pura em arquivos sem WinUI** (posição da janela, regras de alternância, mais tarde o modelo das sessões), compilada também no projeto de testes por link, como no MeuBloco. |
 | A8 | **Dados** em `%LOCALAPPDATA%\MixerDeAudio\` (`config.json`, `logs\`). |
+| A9 | **Troca da saída padrão com IPolicyConfig** (não documentada, estável desde o Windows 7, usada pelo EarTrumpet e pelo SoundSwitch), escrita com `[GeneratedComInterface]`. A troca muda a saída padrão e a de comunicação. |
 
 ## Etapas
 
@@ -38,7 +39,7 @@ App de bandeja para o Windows 11. Um clique no ícone abre uma janelinha (~360 p
 |---|---|---|
 | 1 | Projeto WinUI 3, ícone na bandeja, janelinha abrindo e fechando, medição inicial | concluída (teste do usuário aprovado em 18/11/2026) |
 | 2 | Apps tocando som, com volume e mudo individuais (NAudio, por eventos) | concluída (teste do usuário aprovado em 19/11/2026) |
-| 3 | Volume geral e troca da saída padrão | — |
+| 3 | Volume geral e troca da saída padrão | concluída (teste do usuário aprovado em 19/11/2026) |
 | 4 | Roteamento de saída por app (IAudioPolicyConfig) | — |
 | 5 | Configurações e dispositivos favoritos | — |
 | 6 | Polimento visual, otimização final (trimming/AOT) e instalador | — |
