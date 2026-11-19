@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="MixerDeAudio.Flyout.FlyoutWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Grid x:Name="Root" AutomationProperties.AutomationId="FlyoutRoot" AutomationProperties.Name="Mixer de Áudio"
+          AutomationProperties.AccessibilityView="Content" Padding="20" IsTabStop="True">
+        <StackPanel Spacing="8">
+            <TextBlock x:Name="TitleText" AutomationProperties.AutomationId="FlyoutTitle"
+                       Text="Mixer de Áudio" Style="{StaticResource SubtitleTextBlockStyle}" />
+            <TextBlock Text="Os controles de volume chegam na próxima fase."
+                       TextWrapping="Wrap" Opacity="0.8" />
+        </StackPanel>
+    </Grid>
+</Window>
