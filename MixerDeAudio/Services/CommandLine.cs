@@ -13,6 +13,10 @@ public enum AppCommand
     Open,
     /// <summary><c>--abrir-sem-foco</c> (uso nos roteiros de teste)</summary>
     OpenNoFocus,
+    /// <summary><c>--configuracoes</c>: abre já na página de configurações (Fase 5, D11)</summary>
+    Settings,
+    /// <summary><c>--configuracoes-sem-foco</c> (uso nos roteiros de teste)</summary>
+    SettingsNoFocus,
     /// <summary><c>--fechar</c></summary>
     Close,
     /// <summary><c>--sair</c></summary>
@@ -46,6 +50,8 @@ public static class CommandLine
             {
                 case "--abrir": command = AppCommand.Open; found = true; break;
                 case "--abrir-sem-foco": command = AppCommand.OpenNoFocus; found = true; break;
+                case "--configuracoes": command = AppCommand.Settings; found = true; break;
+                case "--configuracoes-sem-foco": command = AppCommand.SettingsNoFocus; found = true; break;
                 case "--fechar": command = AppCommand.Close; found = true; break;
                 case "--sair": command = AppCommand.Exit; found = true; break;
                 case "--sem-aparar": noTrim = true; break;

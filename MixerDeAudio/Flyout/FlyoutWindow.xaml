@@ -8,6 +8,13 @@
     <Grid x:Name="Root" AutomationProperties.AutomationId="FlyoutRoot" AutomationProperties.Name="Mixer de Áudio"
           AutomationProperties.AccessibilityView="Content" Padding="20,16,12,12" IsTabStop="True" RowSpacing="8">
         <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="36" />
+        </Grid.RowDefinitions>
+
+        <!-- Página principal (Fase 5, D9): escondida, sem ser recriada, enquanto a página de configurações está aberta -->
+        <Grid x:Name="MainPage" RowSpacing="8">
+        <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -169,5 +176,19 @@
                            Text="Nenhum app com som agora." Opacity="0.8" Margin="0,8,0,0" />
             </Grid>
         </ScrollViewer>
+        </Grid>
+
+        <!-- Página de configurações: criada só quando é aberta (SettingsView) -->
+        <Grid x:Name="SettingsHost" Visibility="Collapsed" />
+
+        <!-- D8: rodapé com a engrenagem -->
+        <Grid x:Name="Footer" Grid.Row="1">
+            <Button x:Name="SettingsButton" AutomationProperties.AutomationId="SettingsButton"
+                    AutomationProperties.Name="Configurações" ToolTipService.ToolTip="Configurações"
+                    HorizontalAlignment="Right" VerticalAlignment="Center" Width="32" Height="32" Padding="0"
+                    Background="Transparent" BorderThickness="0" Click="OnSettingsClick">
+                <FontIcon Glyph="&#xE713;" FontSize="16" />
+            </Button>
+        </Grid>
     </Grid>
 </Window>

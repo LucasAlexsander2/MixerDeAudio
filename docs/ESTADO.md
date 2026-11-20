@@ -1,6 +1,6 @@
 # Estado do projeto
 
-**Fase atual:** Fases 1 a 4 concluídas (Fase 4, saída por app: teste do usuário aprovado em 19/11/2026). Próxima: Fase 5 (configurações e favoritos). Detalhes em `docs/fases/fase-1.md` a `fase-4.md`; plano em `docs/PLANO.md`.
+**Fase atual:** Fases 1 a 5 concluídas (Fase 5, configurações e favoritas: teste do usuário aprovado em 20/11/2026). Próxima: Fase 6 (controle pelo celular na rede de casa). Detalhes em `docs/fases/fase-1.md` a `fase-5.md`; plano em `docs/PLANO.md`.
 
 ## Comandos
 
@@ -24,6 +24,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\testes\roteiro-f2.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\testes\medir.ps1 -ComSom
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\testes\roteiro-f3.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\testes\roteiro-f4.ps1   # -SemMedicao pula o 4.6
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\testes\roteiro-f5.ps1   # -SemMedicao pula o 5.9; guarda e devolve config.json e o registro de iniciar com o Windows
 
 # Regerar o ícone
 dotnet run tools\icone\gerar-icone.cs
@@ -31,7 +32,7 @@ dotnet run tools\icone\gerar-icone.cs
 
 ## Linha de comando do app
 
-`MixerDeAudio.exe` sem argumento: abre (segunda cópia) ou só cria o ícone (primeira cópia). `--abrir`, `--abrir-sem-foco` (roteiros), `--fechar`, `--sair`, `--sem-aparar` (desliga a devolução de memória, para medição).
+`MixerDeAudio.exe` sem argumento: abre (segunda cópia) ou só cria o ícone (primeira cópia). `--abrir`, `--abrir-sem-foco` (roteiros), `--fechar`, `--sair`, `--sem-aparar` (desliga a devolução de memória, para medição). Fase 5: `--configuracoes` e `--configuracoes-sem-foco` (roteiros) abrem já na página de configurações (o menu da bandeja tem o item "Configurações").
 
 ## Roteiro da Fase 1
 
@@ -85,3 +86,15 @@ Medição com dois tocadores, 50 ciclos (MB):
 | 2,8 / 76,9 | 0% | 2,9 / 125,7 | 1,9 / 132,9 | 1,8 / 132,0 | 614 / 1249 / 1319 / 1425 |
 
 WS privado 5 a 20: -1,0 MB; bytes privados 20 a 50: -0,9 MB (limite 3). Uma rodada anterior, antes de compartilhar o `StrategyBasedComWrappers`, deu +4,6 MB (ver desvios na seção 7 da fase).
+
+## Fase 5: comandos e medição (20/11/2026)
+
+Novos: `roteiro-f5.ps1` (casos 5.1 a 5.9; o 5.8 roda o f4 sem medição, o 5.9 roda `medir.ps1 -ComSom -Ciclos 50`; `-SemMedicao` pula o 5.9). `lib.ps1`: `BackupConfig` / `RestoreConfig` (config.json e valores `MixerDeAudio` da Run e do StartupApproved\Run; só esse valor é escrito ou apagado), `OpenSettings`, `SettingsBack`, `FavoriteChecks`, `ToggleFavorite`, `SelectTheme`, `StartupSwitchState`, `ToggleStartup`, `BrilhoMedio`. Configuração em `%LOCALAPPDATA%\MixerDeAudio\config.json` (favoritas até 3, tema); "Iniciar com o Windows" é o valor `MixerDeAudio` em `HKCU\...\Run`. Testes unitários: 165. Janela: 420 x 520 DIP, com a engrenagem no rodapé.
+
+Medição com dois tocadores, 50 ciclos (MB):
+
+| Parado 10 s: WS priv / bytes priv | CPU parada | Ciclo 5: WS priv / bytes priv | Ciclo 20: WS priv / bytes priv | Ciclo 50: WS priv / bytes priv | Handles parado / 5 / 20 / 50 | Abertura |
+|---|---|---|---|---|---|---|
+| 2,8 / 75,5 | 0% | 2,7 / 128,9 | 3,4 / 137,6 | 1,8 / 135,5 | 614 / 1280 / 1379 / 1440 | mediana 84 ms, máx. 151 ms |
+
+WS privado 5 a 20: +0,7 MB; bytes privados 20 a 50: -2,1 MB (limite 3; outras rodadas desta fase deram +2,8 e +5,4: critério ruidoso). Desvios em `docs/fases/fase-5.md`, seção 7.

@@ -19,7 +19,7 @@ namespace MixerDeAudio.Flyout;
 public sealed partial class FlyoutWindow : Window
 {
     public const double WidthDip = 420;
-    public const double HeightDip = 480;
+    public const double HeightDip = 520;
 
     public SessionListViewModel ViewModel { get; }
     public DeviceListViewModel Devices { get; }
@@ -31,6 +31,10 @@ public sealed partial class FlyoutWindow : Window
     public int LoadedDevices => Devices.Buttons.Count;
 
     private readonly Action<string, bool> _onClosed;
+    private SettingsView? _settingsView;
+    private bool _isActive;
+    private bool _openedWithoutFocus;
+    private bool _userActivated;
     private string _reason = "sistema";
     private bool _lostFocus;
     private bool _closedRaised;
@@ -49,14 +53,14 @@ public sealed partial class FlyoutWindow : Window
         _deviceMonitor = new DeviceMonitor(DispatcherQueue);
         _monitor = new AudioSessionMonitor(DispatcherQueue, _tracker);
         _routing = AppRoutingService.TryCreate(); // Fase 4, D5: uma vez por abertura, na thread da tela
-        ViewModel = new SessionListViewModel(_tracker, _deviceMonitor.Tracker, _routing, _monitor.SetVolume, _monitor.SetMute);
+        ViewModel = new SessionListViewModel(_tracker, _deviceMonitor.Tracker, _routing, _monitor.SetVolume, _monitor.SetMute, Favorites);
         Master = new MasterVolumeViewModel(_deviceMonitor.SetMasterVolume, _deviceMonitor.SetMasterMute);
         InitializeComponent();
 
         // Ligações feitas pelo código: o x:Bind no nível da janela só é aplicado no Loading, que pode vir tarde demais.
         try { _deviceMonitor.Start(); }
         catch (Exception ex) { Log.Write($"ERRO COM ao listar saídas: {ex}"); }
-        Devices = new DeviceListViewModel(_deviceMonitor.Tracker, _deviceMonitor.SetDefaultDevice);
+        Devices = new DeviceListViewModel(_deviceMonitor.Tracker, _deviceMonitor.SetDefaultDevice, Favorites);
         DeviceList.ItemsSource = Devices.Buttons;
         MasterHost.ItemsSource = new[] { Master };
         Devices.PropertyChanged += OnDevicesChanged;
@@ -72,6 +76,9 @@ public sealed partial class FlyoutWindow : Window
         UpdateEmptyText();
         try { _monitor.Start(_deviceMonitor.Devices); }
         catch (Exception ex) { Log.Write($"ERRO COM ao listar sessões: {ex}"); }
+
+        ApplyTheme();
+        App.Settings.Changed += ApplyTheme;
 
         Title = "Mixer de Áudio";
         SystemBackdrop = new Microsoft.UI.Xaml.Media.MicaBackdrop();
@@ -107,6 +114,7 @@ public sealed partial class FlyoutWindow : Window
         }
         else
         {
+            _openedWithoutFocus = true;
             AppWindow.Show(false);
         }
     }
@@ -117,6 +125,67 @@ public sealed partial class FlyoutWindow : Window
         _reason = reason;
         _lostFocus = lostFocus;
         Close();
+    }
+
+    /// <summary>Favoritas atuais (D5), lidas da configuração em memória.</summary>
+    private static System.Collections.Generic.IReadOnlyCollection<string> Favorites() => App.Settings.Current.Favoritos;
+
+    /// <summary>D10: o tema do conteúdo; a Mica segue o tema do conteúdo.</summary>
+    private void ApplyTheme()
+    {
+        Root.RequestedTheme = App.Settings.Current.Tema switch
+        {
+            AppTheme.Light => ElementTheme.Light,
+            AppTheme.Dark => ElementTheme.Dark,
+            _ => ElementTheme.Default,
+        };
+    }
+
+    private void OnSettingsClick(object sender, RoutedEventArgs e) => ShowSettings();
+
+    /// <summary>Troca a página principal pela de configurações (D9); a página é criada agora.</summary>
+    public void ShowSettings()
+    {
+        if (_settingsView is not null) return;
+        _settingsView = new SettingsView(App.Settings, _deviceMonitor!.Tracker);
+        _settingsView.BackRequested += ShowMain;
+        SettingsHost.Children.Add(_settingsView);
+        SettingsHost.Visibility = Visibility.Visible;
+        MainPage.Visibility = Visibility.Collapsed;
+        Footer.Visibility = Visibility.Collapsed;
+        FocusIfActive();
+    }
+
+    /// <summary>Volta à página principal, solta a de configurações e refaz o topo e as linhas (D7).</summary>
+    public void ShowMain()
+    {
+        if (_settingsView is null) return;
+        ReleaseSettings();
+        MainPage.Visibility = Visibility.Visible;
+        Footer.Visibility = Visibility.Visible;
+        Devices.Refresh();
+        ViewModel.RefreshRoutes();
+        UpdateNoDeviceText();
+        FocusIfActive();
+    }
+
+    /// <summary>
+    /// Devolve o foco ao conteúdo (para o Esc continuar chegando) só quando a janela está ativa: com a janela aberta sem
+    /// foco (roteiros), pedir foco aqui a ativaria e ela fecharia por perda de foco.
+    /// </summary>
+    private void FocusIfActive()
+    {
+        if (_isActive) Root.Focus(FocusState.Programmatic);
+    }
+
+    private void ReleaseSettings()
+    {
+        if (_settingsView is null) return;
+        _settingsView.BackRequested -= ShowMain;
+        SettingsHost.Children.Clear();
+        SettingsHost.Visibility = Visibility.Collapsed;
+        _settingsView.Release();
+        _settingsView = null;
     }
 
     private void OnViewModelChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -139,7 +208,11 @@ public sealed partial class FlyoutWindow : Window
 
     private void OnActivated(object sender, WindowActivatedEventArgs args)
     {
-        if (args.WindowActivationState == WindowActivationState.Deactivated)
+        _isActive = args.WindowActivationState != WindowActivationState.Deactivated;
+        if (args.WindowActivationState == WindowActivationState.PointerActivated) _userActivated = true;
+        // Aberta sem foco (roteiros de teste): um aviso de ativação por código (o Invoke da UI Automation num botão faz
+        // isso) seguido de "desativada" não é o usuário saindo da janela; só vale depois de um clique de verdade.
+        if (args.WindowActivationState == WindowActivationState.Deactivated && (!_openedWithoutFocus || _userActivated))
             RequestClose("perda de foco", lostFocus: true);
     }
 
@@ -147,7 +220,9 @@ public sealed partial class FlyoutWindow : Window
     {
         if (e.Key != VirtualKey.Escape) return;
         e.Handled = true;
-        RequestClose("Esc");
+        // Na página de configurações, Esc volta à página principal (D9); na principal, fecha.
+        if (_settingsView is not null) ShowMain();
+        else RequestClose("Esc");
     }
 
     private void OnClosed(object sender, WindowEventArgs args)
@@ -155,6 +230,8 @@ public sealed partial class FlyoutWindow : Window
         Activated -= OnActivated;
         Closed -= OnClosed;
         Root.KeyDown -= OnKeyDown;
+        App.Settings.Changed -= ApplyTheme;
+        ReleaseSettings();
         // D1: soltar o áudio antes de avisar o App (que agenda a devolução de memória).
         ViewModel.PropertyChanged -= OnViewModelChanged;
         Devices.PropertyChanged -= OnDevicesChanged;

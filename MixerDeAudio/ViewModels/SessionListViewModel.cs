@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.Linq;
@@ -20,10 +21,12 @@ public sealed class SessionListViewModel : ObservableObject, IDisposable
     private readonly AppRoutingService? _routing;
     private readonly Action<string, float> _setVolume;
     private readonly Action<string, bool> _setMute;
+    private readonly Func<IReadOnlyCollection<string>> _favorites;
 
     internal SessionListViewModel(SessionTracker tracker, DeviceTracker devices, AppRoutingService? routing,
-        Action<string, float> setVolume, Action<string, bool> setMute)
+        Action<string, float> setVolume, Action<string, bool> setMute, Func<IReadOnlyCollection<string>> favorites)
     {
+        _favorites = favorites;
         _tracker = tracker;
         _devices = devices;
         _routing = routing;
@@ -84,14 +87,19 @@ public sealed class SessionListViewModel : ObservableObject, IDisposable
         RebuildRoutes(row);
     }
 
+    /// <summary>Saídas que aparecem na linha (D5 e D6): as favoritas e, no fim, a efetiva do app se não for favorita.</summary>
+    private List<DeviceInfo> VisibleFor(SessionRowViewModel row) =>
+        FavoriteFilter.Visible(_devices.Devices, _favorites(), EffectiveOf(row));
+
     private void RebuildRoutes(SessionRowViewModel row)
     {
         row.Routes.Clear();
-        var show = AppRouting.ShowButtons(row.IsSystem, row.RoutesLoaded, _devices.Devices.Count, _routing is not null);
+        var visible = VisibleFor(row);
+        var show = AppRouting.ShowButtons(row.IsSystem, row.RoutesLoaded, visible.Count, _routing is not null);
         if (show)
         {
             var effective = EffectiveOf(row);
-            foreach (var d in _devices.Devices)
+            foreach (var d in visible)
             {
                 row.Routes.Add(new RouteButtonViewModel(d.Id, DeviceGlyph.For(d.FormFactor), row.Name, d.ShortName,
                     string.Equals(d.Id, effective, StringComparison.OrdinalIgnoreCase), id => OnRouteClick(row, id)));
@@ -100,11 +108,30 @@ public sealed class SessionListViewModel : ObservableObject, IDisposable
         row.RouteVisibility = show && row.Routes.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
+    /// <summary>Refaz os botões de todas as linhas (volta da página de configurações, D7).</summary>
+    public void RefreshRoutes()
+    {
+        foreach (var row in Rows)
+            if (row.RoutesLoaded) RebuildRoutes(row);
+    }
+
     private string? EffectiveOf(SessionRowViewModel row) =>
         AppRouting.Effective(row.PreferredId, _devices.DefaultId, _devices.Devices.Select(d => d.Id));
 
+    /// <summary>
+    /// Move o destaque; se o conjunto de botões visíveis mudou (a efetiva entrou ou saiu do "extra" do P2), refaz a linha.
+    /// </summary>
     private void UpdateHighlight(SessionRowViewModel row)
     {
+        var visible = VisibleFor(row);
+        var same = visible.Count == row.Routes.Count;
+        for (var i = 0; same && i < visible.Count; i++)
+            same = string.Equals(visible[i].Id, row.Routes[i].DeviceId, StringComparison.OrdinalIgnoreCase);
+        if (!same)
+        {
+            RebuildRoutes(row);
+            return;
+        }
         var effective = EffectiveOf(row);
         foreach (var b in row.Routes)
             b.IsActive = string.Equals(b.DeviceId, effective, StringComparison.OrdinalIgnoreCase);

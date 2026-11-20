@@ -10,6 +10,8 @@ public class CommandLineTests
     [Theory]
     [InlineData("--abrir", AppCommand.Open)]
     [InlineData("--abrir-sem-foco", AppCommand.OpenNoFocus)]
+    [InlineData("--configuracoes", AppCommand.Settings)]
+    [InlineData("--configuracoes-sem-foco", AppCommand.SettingsNoFocus)]
     [InlineData("--fechar", AppCommand.Close)]
     [InlineData("--sair", AppCommand.Exit)]
     public void CadaArgumento(string arg, AppCommand esperado) => Assert.Equal(esperado, CommandLine.Parse([arg]).Command);

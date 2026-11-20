@@ -9,6 +9,8 @@ internal static class AppPaths
     public static string DataFolder { get; } =
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MixerDeAudio");
 
+    public static string ConfigFile { get; } = Path.Combine(DataFolder, "config.json");
+
     public static string LogsFolder { get; } = Path.Combine(DataFolder, "logs");
 
     public static string LogFile { get; } = Path.Combine(LogsFolder, "mixer.log");

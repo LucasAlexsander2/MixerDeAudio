@@ -254,3 +254,172 @@ function ClickRoute([IntPtr]$h, [string]$app, [string]$curto) {
   if (-not $alvo) { throw "botao 'Enviar $app para $curto' nao encontrado" }
   $alvo.GetCurrentPattern([Windows.Automation.TogglePattern]::Pattern).Toggle()
 }
+
+# ---------------- Fase 5: configurações, favoritas, tema e iniciar com o Windows ----------------
+# Segurança (P3): o roteiro guarda o config.json e os valores MixerDeAudio das chaves Run e StartupApproved\Run
+# (inclusive "não existia") em BackupConfig e devolve tudo em RestoreConfig (no finally). Só o valor MixerDeAudio é escrito
+# ou apagado; nenhum outro valor dessas chaves é tocado. Nada muda o som.
+$script:RunPath = 'Software\Microsoft\Windows\CurrentVersion\Run'
+$script:ApprovedPath = 'Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run'
+$script:cfgFile = "$env:LOCALAPPDATA\MixerDeAudio\config.json"
+$script:bkDir = "$script:out\backup-config"
+$script:backup = $null
+
+# Lê um valor do registro (HKCU): Existe, Tipo, Valor (sem expandir variáveis).
+function RegLer([string]$sub, [string]$nome) {
+  $k = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($sub)
+  if (-not $k) { return [pscustomobject]@{ Existe = $false; Tipo = $null; Valor = $null } }
+  try {
+    if ($k.GetValueNames() -notcontains $nome) { return [pscustomobject]@{ Existe = $false; Tipo = $null; Valor = $null } }
+    $tipo = $k.GetValueKind($nome)
+    $v = $k.GetValue($nome, $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+    [pscustomobject]@{ Existe = $true; Tipo = $tipo; Valor = $v }
+  } finally { $k.Close() }
+}
+function RegTexto($o) {
+  if (-not $o.Existe) { return '(nao existia)' }
+  if ($o.Valor -is [byte[]]) { return "$($o.Tipo):" + (($o.Valor | ForEach-Object { $_.ToString('x2') }) -join '') }
+  "$($o.Tipo):$($o.Valor)"
+}
+# Escreve (ou apaga, se não existia) SÓ o valor informado.
+function RegEscrever([string]$sub, [string]$nome, $o) {
+  if ($o.Existe) {
+    $k = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey($sub)
+    try { $k.SetValue($nome, $o.Valor, $o.Tipo) } finally { $k.Close() }
+  } else {
+    $k = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($sub, $true)
+    if ($k) { try { $k.DeleteValue($nome, $false) } finally { $k.Close() } }
+  }
+}
+# Todos os valores da chave, menos MixerDeAudio, como texto (para provar que nada mais foi tocado).
+function RegOutros([string]$sub) {
+  $k = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($sub)
+  if (-not $k) { return '(chave inexistente)' }
+  try {
+    $nomes = @($k.GetValueNames() | Where-Object { $_ -ne 'MixerDeAudio' } | Sort-Object)
+  } finally { $k.Close() }
+  (@($nomes | ForEach-Object { $o = RegLer $sub $_; "$_=" + (RegTexto $o) })) -join "`n"
+}
+function CfgBytes { if (Test-Path $script:cfgFile) { , [IO.File]::ReadAllBytes($script:cfgFile) } else { $null } }
+
+# Guarda o estado atual. Também grava uma cópia em disco (%TEMP%\mixer-check\backup-config) como segurança extra.
+function BackupConfig {
+  $bytes = CfgBytes
+  $script:backup = [pscustomobject]@{
+    ConfigExiste = ($null -ne $bytes); ConfigBytes = $bytes
+    Run = RegLer $script:RunPath 'MixerDeAudio'; Aprovado = RegLer $script:ApprovedPath 'MixerDeAudio'
+    RunOutros = RegOutros $script:RunPath; AprovadoOutros = RegOutros $script:ApprovedPath
+  }
+  New-Item -ItemType Directory -Force $script:bkDir | Out-Null
+  if ($bytes) { [IO.File]::WriteAllBytes("$script:bkDir\config.json.bak", $bytes) } else { Remove-Item "$script:bkDir\config.json.bak" -Force -ErrorAction SilentlyContinue }
+  @("config.json existia: $($script:backup.ConfigExiste)", "Run MixerDeAudio: $(RegTexto $script:backup.Run)", "StartupApproved MixerDeAudio: $(RegTexto $script:backup.Aprovado)") |
+    Set-Content "$script:bkDir\estado.txt" -Encoding utf8
+}
+# Compara o estado atual com o do BackupConfig. Devolve a lista de diferenças (vazia = igual).
+function ConfigDiferencas {
+  $d = New-Object System.Collections.ArrayList
+  $b = $script:backup; if (-not $b) { return @('sem backup') }
+  $bytes = CfgBytes
+  if ($b.ConfigExiste -ne ($null -ne $bytes)) { [void]$d.Add("config.json existia=$($b.ConfigExiste) agora=$($null -ne $bytes)") }
+  elseif ($bytes -and -not [Linq.Enumerable]::SequenceEqual([byte[]]$b.ConfigBytes, [byte[]]$bytes)) { [void]$d.Add('config.json com conteudo diferente') }
+  if (Test-Path "$script:cfgFile.tmp") { [void]$d.Add('sobrou config.json.tmp') }
+  $r = RegTexto (RegLer $script:RunPath 'MixerDeAudio'); $r0 = RegTexto $b.Run
+  if ($r -ne $r0) { [void]$d.Add("Run MixerDeAudio: antes=$r0 agora=$r") }
+  $a = RegTexto (RegLer $script:ApprovedPath 'MixerDeAudio'); $a0 = RegTexto $b.Aprovado
+  if ($a -ne $a0) { [void]$d.Add("StartupApproved MixerDeAudio: antes=$a0 agora=$a") }
+  if ((RegOutros $script:RunPath) -ne $b.RunOutros) { [void]$d.Add('outros valores da Run mudaram') }
+  if ((RegOutros $script:ApprovedPath) -ne $b.AprovadoOutros) { [void]$d.Add('outros valores do StartupApproved\Run mudaram') }
+  @($d)
+}
+# Devolve tudo como estava (chamar com o app encerrado) e confere. Devolve as diferenças que sobraram.
+function RestoreConfig {
+  $b = $script:backup; if (-not $b) { return @('sem backup') }
+  if ($b.ConfigExiste) {
+    New-Item -ItemType Directory -Force (Split-Path $script:cfgFile) | Out-Null
+    [IO.File]::WriteAllBytes($script:cfgFile, [byte[]]$b.ConfigBytes)
+  } else { Remove-Item $script:cfgFile -Force -ErrorAction SilentlyContinue }
+  Remove-Item "$script:cfgFile.tmp" -Force -ErrorAction SilentlyContinue
+  RegEscrever $script:RunPath 'MixerDeAudio' $b.Run
+  RegEscrever $script:ApprovedPath 'MixerDeAudio' $b.Aprovado
+  ConfigDiferencas
+}
+# "Iniciar com o Windows" como o app calcula (D3): valor da Run aponta para este .exe e não está desligado no StartupApproved.
+function StartupRegLigado {
+  $run = RegLer $script:RunPath 'MixerDeAudio'
+  if (-not $run.Existe -or $run.Valor -isnot [string]) { return $false }
+  $v = $run.Valor.Trim(); if ($v.StartsWith('"')) { $i = $v.IndexOf('"', 1); if ($i -gt 0) { $v = $v.Substring(1, $i - 1) } }
+  if ($v.Trim('"').Trim() -ne $script:exe) { return $false }
+  $ap = RegLer $script:ApprovedPath 'MixerDeAudio'
+  if ($ap.Existe -and $ap.Valor -is [byte[]] -and $ap.Valor.Length -gt 0) {
+    $b0 = $ap.Valor[0]; if ($b0 -ne 2 -and $b0 -ne 6 -and ($b0 -band 1) -eq 1) { return $false }
+  }
+  $true
+}
+
+# --- UI Automation da página de configurações (só Invoke, Toggle, SelectionItem; sem clique real) ---
+function InvokeById([IntPtr]$h, [string]$id) {
+  $e = FindById $h $id; if (-not $e) { throw "elemento '$id' nao encontrado" }
+  $e.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
+}
+function OpenSettings([IntPtr]$h) {
+  InvokeById $h 'SettingsButton'
+  if (-not (WaitFor { $null -ne (FindById $h 'SettingsBack') } 3)) { throw 'a pagina de configuracoes nao abriu' }
+  Start-Sleep -Milliseconds 300
+}
+function SettingsBack([IntPtr]$h) {
+  InvokeById $h 'SettingsBack'
+  if (-not (WaitFor { $null -ne (FindById $h 'DeviceList') } 3)) { throw 'nao voltou a pagina principal' }
+  Start-Sleep -Milliseconds 300
+}
+# Caixas de favoritas: Nome, Marcado e Habilitado.
+function FavoriteChecks([IntPtr]$h) {
+  $root = $AE::FromHandle($h)
+  $c = New-Object Windows.Automation.PropertyCondition ($AE::AutomationIdProperty), 'FavoriteCheck'
+  @($root.FindAll($TS::Descendants, $c)) | ForEach-Object {
+    [pscustomobject]@{
+      Nome = $_.Current.Name
+      Marcado = ($_.GetCurrentPattern([Windows.Automation.TogglePattern]::Pattern).Current.ToggleState -eq [Windows.Automation.ToggleState]::On)
+      Habilitado = $_.Current.IsEnabled
+    }
+  }
+}
+function ToggleFavorite([IntPtr]$h, [string]$nome) {
+  $c = New-Object Windows.Automation.PropertyCondition ($AE::AutomationIdProperty), 'FavoriteCheck'
+  $alvo = @($AE::FromHandle($h).FindAll($TS::Descendants, $c)) | Where-Object { $_.Current.Name -eq $nome } | Select-Object -First 1
+  if (-not $alvo) { throw "favorita '$nome' nao encontrada" }
+  $alvo.GetCurrentPattern([Windows.Automation.TogglePattern]::Pattern).Toggle()
+  Start-Sleep -Milliseconds 250
+}
+function SelectTheme([IntPtr]$h, [string]$tema) {
+  $id = switch ($tema) { 'auto' { 'ThemeAuto' } 'claro' { 'ThemeLight' } 'escuro' { 'ThemeDark' } default { throw "tema desconhecido: $tema" } }
+  $e = FindById $h $id; if (-not $e) { throw "elemento '$id' nao encontrado" }
+  $e.GetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern).Select()
+  Start-Sleep -Milliseconds 600
+}
+# Tema marcado na página (auto|claro|escuro) ou ''.
+function ThemeSelected([IntPtr]$h) {
+  foreach ($par in @(@('ThemeAuto', 'auto'), @('ThemeLight', 'claro'), @('ThemeDark', 'escuro'))) {
+    $e = FindById $h $par[0]
+    if ($e -and $e.GetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern).Current.IsSelected) { return $par[1] }
+  }
+  ''
+}
+function StartupSwitchState([IntPtr]$h) {
+  $e = FindById $h 'StartupSwitch'; if (-not $e) { return $null }
+  $e.GetCurrentPattern([Windows.Automation.TogglePattern]::Pattern).Current.ToggleState -eq [Windows.Automation.ToggleState]::On
+}
+function ToggleStartup([IntPtr]$h) {
+  $e = FindById $h 'StartupSwitch'; if (-not $e) { throw 'StartupSwitch nao encontrado' }
+  $e.GetCurrentPattern([Windows.Automation.TogglePattern]::Pattern).Toggle()
+  Start-Sleep -Milliseconds 400
+}
+# Brilho médio (0 a 255) de uma captura PNG, amostrando 1 pixel a cada 4.
+function BrilhoMedio([string]$png) {
+  $bmp = New-Object Drawing.Bitmap $png
+  try {
+    $soma = 0.0; $n = 0
+    for ($y = 0; $y -lt $bmp.Height; $y += 4) { for ($x = 0; $x -lt $bmp.Width; $x += 4) {
+      $c = $bmp.GetPixel($x, $y); $soma += 0.299 * $c.R + 0.587 * $c.G + 0.114 * $c.B; $n++ } }
+    [math]::Round($soma / $n, 1)
+  } finally { $bmp.Dispose() }
+}

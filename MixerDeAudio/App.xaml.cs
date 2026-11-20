@@ -29,6 +29,9 @@ public partial class App : Application
 
     public static App? Instance { get; private set; }
 
+    /// <summary>Configuração do usuário em memória (Fase 5, D2); lida uma vez, na partida.</summary>
+    public static SettingsStore Settings { get; private set; } = new();
+
     public App()
     {
         InitializeComponent();
@@ -44,7 +47,10 @@ public partial class App : Application
         DispatcherShutdownMode = DispatcherShutdownMode.OnExplicitShutdown;
 
         Log.Write("iniciado");
-        _tray = new TrayIconService(onToggle: Toggle, onOpen: () => Open(activate: true, atCursor: true, checkGate: false), onExit: ExitApp);
+        Settings = SettingsStore.Load();
+        Log.Write($"config carregada (favoritos={Settings.Current.Favoritos.Count}, tema={Settings.Current.Tema})");
+        _tray = new TrayIconService(onToggle: Toggle, onOpen: () => Open(activate: true, atCursor: true, checkGate: false),
+            onSettings: () => Open(activate: true, atCursor: true, checkGate: false, settings: true), onExit: ExitApp);
         TrayIconService.SetEfficiencyMode(true);
 
         _trimTimer = DispatcherQueue.GetForCurrentThread().CreateTimer();
@@ -73,6 +79,12 @@ public partial class App : Application
             case AppCommand.OpenNoFocus:
                 Open(activate: false, atCursor: false, checkGate: false);
                 break;
+            case AppCommand.Settings:
+                Open(activate: true, atCursor: false, checkGate: false, settings: true);
+                break;
+            case AppCommand.SettingsNoFocus:
+                Open(activate: false, atCursor: false, checkGate: false, settings: true);
+                break;
             case AppCommand.Close:
                 _flyout?.RequestClose("comando");
                 break;
@@ -92,13 +104,14 @@ public partial class App : Application
         });
     }
 
-    private void Open(bool activate, bool atCursor, bool checkGate)
+    private void Open(bool activate, bool atCursor, bool checkGate, bool settings = false)
     {
         RunOnUi(() =>
         {
             if (_exiting) return;
             if (_flyout is not null)
             {
+                if (settings) _flyout.ShowSettings();
                 if (activate) _flyout.Activate();
                 return;
             }
@@ -110,6 +123,7 @@ public partial class App : Application
             var timer = System.Diagnostics.Stopwatch.StartNew();
             var rect = ComputePlacement(atCursor);
             _flyout = new FlyoutWindow(OnFlyoutClosed);
+            if (settings) _flyout.ShowSettings();
             timer.Stop();
             Log.Write($"sessoes carregadas (apps={_flyout.LoadedApps}, sessoes={_flyout.LoadedSessions}, saidas={_flyout.LoadedDevices}, {timer.ElapsedMilliseconds} ms)");
             _flyout.Present(rect, activate);

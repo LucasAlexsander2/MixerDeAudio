@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using Microsoft.UI.Xaml;
@@ -8,18 +9,21 @@ namespace MixerDeAudio.ViewModels;
 
 /// <summary>
 /// Botões das saídas na ordem do D7, alimentados pelos avisos do <see cref="DeviceTracker"/>: insere, remove e move
-/// na posição certa, sem recriar a lista (D15).
+/// na posição certa, sem recriar a lista (D15). Na Fase 5 só mostra as favoritas e a saída ativa (D5).
 /// </summary>
 public sealed class DeviceListViewModel : ObservableObject, IDisposable
 {
     private readonly DeviceTracker _tracker;
     private readonly Action<string> _select;
+    private readonly Func<IReadOnlyCollection<string>> _favorites;
 
-    public DeviceListViewModel(DeviceTracker tracker, Action<string> select)
+    /// <param name="favorites">Ids das favoritas no momento (Fase 5, D5); vazio mostra todas as saídas.</param>
+    public DeviceListViewModel(DeviceTracker tracker, Action<string> select, Func<IReadOnlyCollection<string>> favorites)
     {
         _tracker = tracker;
         _select = select;
-        foreach (var d in tracker.Devices) Buttons.Add(new DeviceButtonViewModel(d, tracker.IsActive(d.Id), select));
+        _favorites = favorites;
+        Refresh();
         Buttons.CollectionChanged += OnButtonsChanged;
         _tracker.Changed += OnTrackerChanged;
     }
@@ -36,27 +40,41 @@ public sealed class DeviceListViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(ListVisibility));
     }
 
-    private void OnTrackerChanged(DeviceChange change)
+    private void OnTrackerChanged(DeviceChange change) => Refresh();
+
+    /// <summary>
+    /// Reconcilia os botões com o que o D5 manda mostrar (favoritas ativas e, no fim, a ativa que não é favorita):
+    /// tira, insere e move na posição certa, sem recriar os botões que continuam. Também é chamada ao voltar da
+    /// página de configurações (D7).
+    /// </summary>
+    public void Refresh()
     {
-        switch (change.Kind)
+        var desired = FavoriteFilter.Visible(_tracker.Devices, _favorites(), _tracker.ActiveId);
+        for (var i = Buttons.Count - 1; i >= 0; i--)
         {
-            case DeviceChangeKind.Added when change.Device is not null:
-                Buttons.Insert(Math.Min(change.Index, Buttons.Count),
-                    new DeviceButtonViewModel(change.Device, _tracker.IsActive(change.Device.Id), _select));
-                break;
-            case DeviceChangeKind.Changed when change.Device is not null:
-                if (change.OldIndex < 0 || change.OldIndex >= Buttons.Count) return;
-                Buttons[change.OldIndex].Apply(change.Device);
-                if (change.Index != change.OldIndex && change.Index >= 0 && change.Index < Buttons.Count)
-                    Buttons.Move(change.OldIndex, change.Index);
-                break;
-            case DeviceChangeKind.Removed:
-                if (change.OldIndex >= 0 && change.OldIndex < Buttons.Count) Buttons.RemoveAt(change.OldIndex);
-                break;
-            case DeviceChangeKind.DefaultChanged:
-                foreach (var b in Buttons) b.IsActive = _tracker.IsActive(b.Id);
-                break;
+            var id = Buttons[i].Id;
+            if (!desired.Exists(d => string.Equals(d.Id, id, StringComparison.Ordinal))) Buttons.RemoveAt(i);
         }
+        for (var i = 0; i < desired.Count; i++)
+        {
+            var d = desired[i];
+            var at = IndexOf(d.Id);
+            if (at < 0)
+            {
+                Buttons.Insert(i, new DeviceButtonViewModel(d, _tracker.IsActive(d.Id), _select));
+                continue;
+            }
+            if (at != i) Buttons.Move(at, i);
+            Buttons[i].Apply(d);
+            Buttons[i].IsActive = _tracker.IsActive(d.Id);
+        }
+    }
+
+    private int IndexOf(string id)
+    {
+        for (var i = 0; i < Buttons.Count; i++)
+            if (string.Equals(Buttons[i].Id, id, StringComparison.Ordinal)) return i;
+        return -1;
     }
 
     public void Dispose()
