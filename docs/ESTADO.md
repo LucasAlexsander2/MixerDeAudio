@@ -1,6 +1,6 @@
 # Estado do projeto
 
-**Fase atual:** Fases 1, 2 e 3 concluídas (Fase 3, volume geral e troca da saída padrão: teste do usuário aprovado em 19/11/2026). Próxima: Fase 4 (roteamento de saída por app). Detalhes em `docs/fases/fase-1.md`, `fase-2.md` e `fase-3.md`; plano em `docs/PLANO.md`.
+**Fase atual:** Fases 1 a 4 concluídas (Fase 4, saída por app: teste do usuário aprovado em 19/11/2026). Próxima: Fase 5 (configurações e favoritos). Detalhes em `docs/fases/fase-1.md` a `fase-4.md`; plano em `docs/PLANO.md`.
 
 ## Comandos
 
@@ -22,6 +22,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\testes\medir.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\testes\medir.ps1 -SemAparar
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\testes\roteiro-f2.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\testes\medir.ps1 -ComSom
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\testes\roteiro-f3.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\testes\roteiro-f4.ps1   # -SemMedicao pula o 4.6
 
 # Regerar o ícone
 dotnet run tools\icone\gerar-icone.cs
@@ -69,3 +71,17 @@ Medição com dois tocadores, 50 ciclos (MB):
 | 2,9 / 75,8 | 0% | 2,6 / 120,3 | 1,7 / 128,4 | 1,4 / 131,3 | 614 / 1273 / 1318 / 1406 |
 
 WS privado 5 a 20: -0,9 MB; bytes privados 20 a 50: +2,9 MB (limite 3). Handles só registrados, para a Fase 6.
+
+## Fase 4: comandos e medição (19/11/2026)
+
+Novos: `roteiro-f4.ps1` (casos 4.1 a 4.6; o 4.5 roda o f3 sem medição, o 4.6 roda `medir.ps1 -ComSom -Ciclos 50`; `-SemMedicao` pula o 4.6), `sessoes.exe rota-ler <pid>` (só leitura, qualquer app) e `sessoes.exe rota <pid> <id|padrao>` (**só** processos `tocar` e `tocar-b`; recusa os outros com código 3). `lib.ps1`: `RouteButtons`, `ClickRoute` (só linhas `MX-teste`), `RotaLer`, `Rota`, `SessionDevice`. O roteiro lê a escolha dos apps reais antes e depois (têm que ser iguais) e apaga a escolha dos tocadores vivos no `finally`. Testes unitários: 118. Abertura: ~146 ms.
+
+Na janela, cada app tem um botão (ícone) por saída; clicar numa que não é a padrão grava a escolha no Windows, e clicar na padrão apaga a escolha (o app volta a seguir a padrão). Com o tocador de teste a sessão só passou para a outra saída depois de reiniciar o tocador (D14).
+
+Medição com dois tocadores, 50 ciclos (MB):
+
+| Parado 10 s: WS priv / bytes priv | CPU parada | Ciclo 5: WS priv / bytes priv | Ciclo 20: WS priv / bytes priv | Ciclo 50: WS priv / bytes priv | Handles parado / 5 / 20 / 50 |
+|---|---|---|---|---|---|
+| 2,8 / 76,9 | 0% | 2,9 / 125,7 | 1,9 / 132,9 | 1,8 / 132,0 | 614 / 1249 / 1319 / 1425 |
+
+WS privado 5 a 20: -1,0 MB; bytes privados 20 a 50: -0,9 MB (limite 3). Uma rodada anterior, antes de compartilhar o `StrategyBasedComWrappers`, deu +4,6 MB (ver desvios na seção 7 da fase).

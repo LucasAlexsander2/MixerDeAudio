@@ -64,6 +64,15 @@ public sealed class SessionTracker
         return g is null ? Array.Empty<string>() : g.Sessions.Select(s => s.Id).ToList();
     }
 
+    /// <summary>Pids distintos (maiores que 0) das sessões de um grupo, na ordem de chegada (Fase 4, D4).</summary>
+    public IReadOnlyList<int> ProcessIds(string key)
+    {
+        var g = Find(key);
+        return g is null
+            ? Array.Empty<int>()
+            : g.Sessions.Select(s => s.ProcessId).Where(p => p > 0).Distinct().ToList();
+    }
+
     /// <summary>Chave do grupo para uma sessão (D9).</summary>
     public static string KeyFor(SessionInfo s)
     {

@@ -4,7 +4,7 @@ Fonte original: `Mixer de Áudio para Windows – Documento de Design.pdf` (raiz
 
 ## Produto
 
-App de bandeja para o Windows 11. Um clique no ícone abre uma janelinha (~360 px, cantos arredondados, Mica) acima do ícone, que fecha ao clicar fora.
+App de bandeja para o Windows 11. Um clique no ícone abre uma janelinha (~420 px, cantos arredondados, Mica) acima do ícone, que fecha ao clicar fora.
 - **Topo:** volume geral, mudo e botões dos dispositivos favoritos (o ativo fica destacado; um clique troca a saída padrão; apps com saída própria continuam onde estão).
 - **Lista:** cada app que está tocando, com ícone, nome, volume, mudo e botões dos favoritos (um clique troca a saída daquele app).
 - **Configurações:** 2 ou 3 favoritos, tema claro/escuro/automático, iniciar com o Windows.
@@ -40,6 +40,6 @@ App de bandeja para o Windows 11. Um clique no ícone abre uma janelinha (~360 p
 | 1 | Projeto WinUI 3, ícone na bandeja, janelinha abrindo e fechando, medição inicial | concluída (teste do usuário aprovado em 18/11/2026) |
 | 2 | Apps tocando som, com volume e mudo individuais (NAudio, por eventos) | concluída (teste do usuário aprovado em 19/11/2026) |
 | 3 | Volume geral e troca da saída padrão | concluída (teste do usuário aprovado em 19/11/2026) |
-| 4 | Roteamento de saída por app (IAudioPolicyConfig) | — |
+| 4 | Roteamento de saída por app (IAudioPolicyConfig) | concluída (teste do usuário aprovado em 19/11/2026) |
 | 5 | Configurações e dispositivos favoritos | — |
 | 6 | Polimento visual, otimização final (trimming/AOT) e instalador | — |

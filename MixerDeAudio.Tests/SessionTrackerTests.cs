@@ -201,4 +201,34 @@ public class SessionTrackerTests
         t.UpdateState("a", SessionState.Inactive); // o estado não aparece na foto do grupo
         Assert.Empty(avisos);
     }
+
+    private static SessionInfo P(string id, int pid, string exe) =>
+        new(id, pid, exe, "App", 0.5f, false, SessionState.Active, false);
+
+    [Fact]
+    public void ProcessIdsNaoRepeteNemTrazPidZero()
+    {
+        var t = new SessionTracker();
+        t.Add(P("a1", 10, @"C:\Apps\a.exe"));
+        t.Add(P("a2", 10, @"C:\Apps\a.exe"));
+        t.Add(P("a3", 20, @"C:\Apps\a.exe"));
+        t.Add(P("a4", 0, @"C:\Apps\a.exe"));
+        var key = t.Groups[0].Key;
+        Assert.Equal(new[] { 10, 20 }, t.ProcessIds(key));
+    }
+
+    [Fact]
+    public void ProcessIdsDeGrupoInexistenteEhVazio()
+    {
+        var t = new SessionTracker();
+        Assert.Empty(t.ProcessIds("nao-existe"));
+    }
+
+    [Fact]
+    public void ProcessIdsDeSonsDoSistemaEhVazio()
+    {
+        var t = new SessionTracker();
+        t.Add(S("sys", "Sons do sistema", null, system: true));
+        Assert.Empty(t.ProcessIds(SessionTracker.SystemKey));
+    }
 }

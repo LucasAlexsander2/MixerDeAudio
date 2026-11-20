@@ -18,7 +18,7 @@ namespace MixerDeAudio.Flyout;
 /// </summary>
 public sealed partial class FlyoutWindow : Window
 {
-    public const double WidthDip = 360;
+    public const double WidthDip = 420;
     public const double HeightDip = 480;
 
     public SessionListViewModel ViewModel { get; }
@@ -37,6 +37,7 @@ public sealed partial class FlyoutWindow : Window
     private readonly SessionTracker _tracker = new();
     private DeviceMonitor? _deviceMonitor;
     private AudioSessionMonitor? _monitor;
+    private AppRoutingService? _routing;
 
     /// <param name="onClosed">Chamado uma vez, ao fechar, com o motivo e se foi por perda de foco.</param>
     public FlyoutWindow(Action<string, bool> onClosed)
@@ -47,7 +48,8 @@ public sealed partial class FlyoutWindow : Window
         // O DeviceMonitor vem primeiro (dono do enumerador) e recebe o Dispose por último (Fase 3, D1).
         _deviceMonitor = new DeviceMonitor(DispatcherQueue);
         _monitor = new AudioSessionMonitor(DispatcherQueue, _tracker);
-        ViewModel = new SessionListViewModel(_tracker, _monitor.SetVolume, _monitor.SetMute);
+        _routing = AppRoutingService.TryCreate(); // Fase 4, D5: uma vez por abertura, na thread da tela
+        ViewModel = new SessionListViewModel(_tracker, _deviceMonitor.Tracker, _routing, _monitor.SetVolume, _monitor.SetMute);
         Master = new MasterVolumeViewModel(_deviceMonitor.SetMasterVolume, _deviceMonitor.SetMasterMute);
         InitializeComponent();
 
@@ -167,6 +169,8 @@ public sealed partial class FlyoutWindow : Window
         }
         ViewModel.Dispose();
         Devices.Dispose();
+        _routing?.Dispose();
+        _routing = null;
         _monitor?.Dispose();
         _monitor = null;
         _deviceMonitor?.Dispose(); // por último: é o dono do enumerador (D1)

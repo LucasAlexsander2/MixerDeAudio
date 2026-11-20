@@ -21,27 +21,43 @@ using var saida = new WasapiOut(AudioClientShareMode.Shared, 100);
 saida.Init(new SilenceProvider(new WaveFormat(44100, 16, 2)));
 saida.Play();
 
-// Procura a sessão do próprio processo e define o DisplayName.
+// Procura a sessão do próprio processo em todas as saídas ativas e define o DisplayName. Fase 4: a saída por app pode
+// levar o som para outra saída (e criar uma sessão nova lá), então o nome é reaplicado durante a execução inteira.
 var pid = Environment.ProcessId;
 using var enumerador = new MMDeviceEnumerator();
-using var dispositivo = enumerador.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
-var gerenciador = dispositivo.AudioSessionManager;
+
+bool AplicarNome()
+{
+    var achou = false;
+    using var saidas = enumerador.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active);
+    for (var d = 0; d < saidas.Count; d++)
+    {
+        try
+        {
+            var gerenciador = saidas[d].AudioSessionManager;
+            gerenciador.RefreshSessions();
+            var sessoes = gerenciador.Sessions;
+            for (var s = 0; s < sessoes.Count; s++)
+            {
+                var sessao = sessoes[s];
+                if (sessao.GetProcessID != pid) continue;
+                if (sessao.DisplayName != nome) sessao.DisplayName = nome;
+                achou = true;
+            }
+        }
+        catch { }
+    }
+    return achou;
+}
+
 for (var tentativa = 0; tentativa < 30; tentativa++)
 {
-    gerenciador.RefreshSessions();
-    var sessoes = gerenciador.Sessions;
-    var ok = false;
-    for (var s = 0; s < sessoes.Count; s++)
-    {
-        var sessao = sessoes[s];
-        if (sessao.GetProcessID == pid) { sessao.DisplayName = nome; ok = true; }
-    }
-    if (ok) break;
+    if (AplicarNome()) break;
     Thread.Sleep(100);
 }
 
 Console.WriteLine(pid);
 Console.Out.Flush();
 var limite = Stopwatch.StartNew();
-while (limite.Elapsed.TotalSeconds < segundos) Thread.Sleep(200);
+while (limite.Elapsed.TotalSeconds < segundos) { Thread.Sleep(250); AplicarNome(); }
 saida.Stop();

@@ -101,7 +101,8 @@ function Sessoes {
   & "$script:ferr\sessoes-bin\sessoes.exe" listar | ForEach-Object {
     $p = $_ -split '\|'
     if ($p.Count -ge 5) {
-      [pscustomobject]@{ Pid = [int]$p[0]; Nome = $p[1]; Estado = $p[2]; Volume = [double]::Parse($p[3], [Globalization.CultureInfo]::InvariantCulture); Mudo = ($p[4] -eq 'sim') }
+      [pscustomobject]@{ Pid = [int]$p[0]; Nome = $p[1]; Estado = $p[2]; Volume = [double]::Parse($p[3], [Globalization.CultureInfo]::InvariantCulture); Mudo = ($p[4] -eq 'sim')
+        SaidaId = $(if ($p.Count -ge 6) { $p[5] } else { '' }) }
     }
   }
 }
@@ -119,6 +120,9 @@ function StartPlayer([string]$nome, [switch]$B, [int]$segundos = 900) {
   $p = Start-Process "$script:ferr\$exeName-bin\$exeName.exe" -ArgumentList @('--nome', "`"$nome`"", '--segundos', "$segundos") -PassThru -WindowStyle Hidden
   [void]$script:players.Add($p)
   WaitFor { $s = SessionOf $p.Id; $s -and $s.Nome -eq $nome } 8 | Out-Null
+  # O Windows guarda volume e mudo por app: se um roteiro anterior deixou o tocador mudo, ele já nasce mudo. Tira do mudo (só tocador de teste).
+  $s0 = SessionOf $p.Id
+  if ($s0 -and $s0.Mudo) { DefinirSessao $p.Id ($s0.Volume.ToString('0.00', [Globalization.CultureInfo]::InvariantCulture)) 'som' | Out-Null }
   $p
 }
 # Encerra só os tocadores iniciados pelo roteiro.
@@ -214,4 +218,39 @@ function SetMasterValue([IntPtr]$h, [double]$valor) {
   $pat = $e.GetCurrentPattern([Windows.Automation.RangeValuePattern]::Pattern)
   if ([math]::Abs($valor - $pat.Current.Value) -gt 2) { throw "RECUSADO: SetMasterValue so aceita ate 2 pontos de diferenca (atual $($pat.Current.Value), pedido $valor)." }
   $pat.SetValue($valor)
+}
+
+# ---------------- Fase 4: saída por app ----------------
+# Segurança: só os tocadores de teste (processos tocar e tocar-b, linhas "MX-teste ...") têm a saída trocada.
+# O sessoes.exe recusa (código 3) qualquer outro processo e ClickRoute recusa qualquer outra linha. Os apps reais só são lidos.
+# Nunca existe chamada que apague a escolha de todos os apps.
+
+# Id da saída (MMDevice) em que a sessão do processo está tocando agora (coluna nova do "listar"), ou $null.
+function SessionDevice([int]$procId) { $s = SessionOf $procId; if ($s) { $s.SaidaId } else { $null } }
+# Escolha de saída gravada no Windows para o processo (só leitura): id do MMDevice ou 'padrao'.
+function RotaLer([int]$procId) { ((& "$script:ferr\sessoes-bin\sessoes.exe" rota-ler "$procId") | Select-Object -First 1) }
+# Grava a escolha (id do MMDevice, ou 'padrao' para apagar). O sessoes.exe recusa o que não for tocador. Devolve o código de saída.
+function Rota([int]$procId, [string]$destino) {
+  & "$script:ferr\sessoes-bin\sessoes.exe" rota "$procId" $destino | Out-Null
+  $LASTEXITCODE
+}
+# Botões de saída de uma linha da janela (UI Automation, sem clique): Nome e Ativo.
+function RouteButtons([IntPtr]$h, [string]$app) {
+  $row = RowElement $h $app; if (-not $row) { return @() }
+  $c = New-Object Windows.Automation.PropertyCondition ($AE::AutomationIdProperty), 'RouteButton'
+  @($row.FindAll($TS::Descendants, $c)) | ForEach-Object {
+    [pscustomobject]@{
+      Nome = $_.Current.Name
+      Ativo = ($_.GetCurrentPattern([Windows.Automation.TogglePattern]::Pattern).Current.ToggleState -eq [Windows.Automation.ToggleState]::On)
+    }
+  }
+}
+# TogglePattern.Toggle no botão "Enviar <app> para <curto>", sem clique real. SÓ em linhas MX-teste.
+function ClickRoute([IntPtr]$h, [string]$app, [string]$curto) {
+  AssertTocador $app
+  $row = RowElement $h $app; if (-not $row) { throw "linha '$app' nao encontrada" }
+  $c = New-Object Windows.Automation.PropertyCondition ($AE::AutomationIdProperty), 'RouteButton'
+  $alvo = @($row.FindAll($TS::Descendants, $c)) | Where-Object { $_.Current.Name -eq "Enviar $app para $curto" } | Select-Object -First 1
+  if (-not $alvo) { throw "botao 'Enviar $app para $curto' nao encontrado" }
+  $alvo.GetCurrentPattern([Windows.Automation.TogglePattern]::Pattern).Toggle()
 }

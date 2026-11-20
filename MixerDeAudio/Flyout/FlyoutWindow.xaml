@@ -48,7 +48,7 @@
         </Grid>
 
         <!-- D14: volume geral (mesmas medidas da linha de um app) -->
-        <ItemsControl x:Name="MasterHost" Grid.Row="1" AutomationProperties.AccessibilityView="Content">
+        <ItemsControl x:Name="MasterHost" Grid.Row="1" Margin="0,0,18,0" AutomationProperties.AccessibilityView="Content">
             <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="vm:MasterVolumeViewModel">
                     <Grid Height="40" ColumnSpacing="8">
@@ -77,10 +77,10 @@
             </ItemsControl.ItemTemplate>
         </ItemsControl>
 
-        <Rectangle Grid.Row="2" Height="1" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,0,8,0" />
+        <Rectangle Grid.Row="2" Height="1" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,0,18,0" />
 
         <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto" VerticalScrollMode="Auto"
-                      HorizontalScrollBarVisibility="Disabled" Padding="0,0,8,0">
+                      HorizontalScrollBarVisibility="Disabled" Padding="0,0,18,0">
             <Grid>
                 <ItemsControl x:Name="SessionList" AutomationProperties.AutomationId="SessionList"
                               AutomationProperties.Name="Apps com som" AutomationProperties.AccessibilityView="Content">
@@ -107,8 +107,36 @@
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
                                     </Grid.RowDefinitions>
-                                    <TextBlock Text="{x:Bind Name, Mode=OneWay}" TextTrimming="CharacterEllipsis"
-                                               MaxLines="1" Margin="0,4,0,0" />
+                                    <!-- Fase 4, D9: nome (cortado com reticências) e, à direita, um botão por saída -->
+                                    <Grid ColumnSpacing="8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="{x:Bind Name, Mode=OneWay}" TextTrimming="CharacterEllipsis"
+                                                   MaxLines="1" Margin="0,4,0,0" VerticalAlignment="Top" />
+                                        <ItemsControl Grid.Column="1" ItemsSource="{x:Bind Routes}"
+                                                      Visibility="{x:Bind RouteVisibility, Mode=OneWay}"
+                                                      VerticalAlignment="Top" Margin="0,2,0,0">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <StackPanel Orientation="Horizontal" Spacing="4" />
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="vm:RouteButtonViewModel">
+                                                    <ToggleButton AutomationProperties.AutomationId="RouteButton"
+                                                                  AutomationProperties.Name="{x:Bind Name}"
+                                                                  ToolTipService.ToolTip="{x:Bind Name}"
+                                                                  IsChecked="{x:Bind IsActive, Mode=OneWay}"
+                                                                  Click="{x:Bind OnClick}"
+                                                                  Width="28" Height="24" Padding="0">
+                                                        <FontIcon Glyph="{x:Bind Glyph}" FontSize="14" />
+                                                    </ToggleButton>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </Grid>
                                     <Grid Grid.Row="1" ColumnSpacing="8">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="Auto" />

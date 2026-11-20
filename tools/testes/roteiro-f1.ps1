@@ -35,7 +35,7 @@ try {
   $margem = [math]::Round(12 * $scale)
   $dentro = $r.L -ge $wa.L -and $r.T -ge $wa.T -and $r.R -le $wa.R -and $r.B -le $wa.B
   $encostado = [math]::Abs($wa.R - $margem - $r.R) -le 12 -and [math]::Abs($wa.B - $margem - $r.B) -le 12
-  $larguraOk = [math]::Abs($w - 360 * $scale) -le 2
+  $larguraOk = [math]::Abs($w - 420 * $scale) -le 2
   $root = FindById $h 'FlyoutRoot'; $title = FindById $h 'DeviceList'  # Fase 3: o título saiu (D14); o topo agora é a fileira de saídas
   $semFoco = $fgAntes -eq $fgDepois
   $shot = Shot $h 'f1-janela'
