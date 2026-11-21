@@ -28,8 +28,17 @@ try {
   $h = (Windows | Select-Object -First 1)
   $fgDepois = [MW]::GetForegroundWindow()
   $procs = (AppProcs).Count
-  $r = New-Object MW+RECT; [MW]::GetWindowRect($h, [ref]$r) | Out-Null
-  $w = $r.R - $r.L; $ht = $r.B - $r.T
+  # Modo oculto (--teste-oculto): a janela fica fora das telas, entao a posicao vem da linha do log "janela: posicao calculada
+  # x,y,l,a"; o tamanho real continua sendo conferido na janela, e confere-se tambem que ela esta fora de todas as telas.
+  $real = New-Object MW+RECT; [MW]::GetWindowRect($h, [ref]$real) | Out-Null
+  $calc = [regex]::Match((@(LogLines | Where-Object { $_ -match 'janela: posicao calculada' }) | Select-Object -Last 1), 'calculada (-?\d+),(-?\d+),(\d+),(\d+)')
+  if (-not $calc.Success) { throw 'sem a linha "janela: posicao calculada" no log' }
+  $r = New-Object MW+RECT
+  $r.L = [int]$calc.Groups[1].Value; $r.T = [int]$calc.Groups[2].Value
+  $r.R = $r.L + [int]$calc.Groups[3].Value; $r.B = $r.T + [int]$calc.Groups[4].Value
+  $w = $real.R - $real.L; $ht = $real.B - $real.T
+  $vs = [Windows.Forms.SystemInformation]::VirtualScreen
+  $foraDasTelas = ($real.R -le $vs.Left) -or ($real.T -ge $vs.Bottom)
   $scale = [MW]::GetDpiForWindow($h) / 96.0
   $wa = New-Object MW+RECT; [MW]::SystemParametersInfo(0x30, 0, [ref]$wa, 0) | Out-Null
   $margem = [math]::Round(12 * $scale)
@@ -40,8 +49,8 @@ try {
   $root = FindById $h 'FlyoutRoot'; $title = FindById $h 'DeviceList'  # Fase 3: o título saiu (D14); o topo agora é a fileira de saídas
   $semFoco = $fgAntes -eq $fgDepois
   $shot = Shot $h 'f1-janela'
-  $ok = $achou -and $procs -eq 1 -and $root -and $title -and $larguraOk -and $alturaOk -and $dentro -and $encostado -and $semFoco -and (LogCount 'janela aberta') -ge 1
-  Resultado '1.2 Abrir' ([bool]$ok) ("achou=$achou processos=$procs FlyoutRoot=$([bool]$root) DeviceList=$([bool]$title) rect=($($r.L),$($r.T))-($($r.R),$($r.B)) ${w}x${ht} escala=$scale larguraOk=$larguraOk alturaOk=$alturaOk dentro=$dentro encostado=$encostado areaTrabalho=($($wa.L),$($wa.T))-($($wa.R),$($wa.B)) foco igual=$semFoco log=$(LogCount 'janela aberta') captura=$shot")
+  $ok = $achou -and $procs -eq 1 -and $root -and $title -and $larguraOk -and $alturaOk -and $dentro -and $encostado -and $semFoco -and $foraDasTelas -and (LogCount 'janela aberta') -ge 1
+  Resultado '1.2 Abrir' ([bool]$ok) ("achou=$achou processos=$procs FlyoutRoot=$([bool]$root) DeviceList=$([bool]$title) rect calculado=($($r.L),$($r.T))-($($r.R),$($r.B)) ${w}x${ht} escala=$scale larguraOk=$larguraOk alturaOk=$alturaOk dentro=$dentro encostado=$encostado areaTrabalho=($($wa.L),$($wa.T))-($($wa.R),$($wa.B)) foco igual=$semFoco janela real fora das telas=$foraDasTelas (real=($($real.L),$($real.T))) log=$(LogCount 'janela aberta') captura=$shot")
 
   # 1.3 Fechar
   Cmd '--fechar'

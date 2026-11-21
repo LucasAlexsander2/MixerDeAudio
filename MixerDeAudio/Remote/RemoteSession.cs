@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net.WebSockets;
 using System.Text;
 using System.Threading;
@@ -94,6 +95,7 @@ internal sealed class RemoteSession
             _hub.Devices.Changed += OnDevicesChanged;
             _hub.MasterChanged += OnMasterChanged;
             _hub.RouteChanged += OnRouteChanged;
+            _hub.MediaChanged += OnMediaChanged;
             App.Settings.Changed += OnSettingsChanged;
             _timer = _ui.CreateTimer();
             _timer.Interval = CoalesceInterval;
@@ -123,6 +125,7 @@ internal sealed class RemoteSession
             }
             _hub.MasterChanged -= OnMasterChanged;
             _hub.RouteChanged -= OnRouteChanged;
+            _hub.MediaChanged -= OnMediaChanged;
             App.Settings.Changed -= OnSettingsChanged;
             if (_timer is not null)
             {
@@ -139,6 +142,7 @@ internal sealed class RemoteSession
     private void OnDevicesChanged(DeviceChange change) => MarkDirty();
     private void OnMasterChanged(bool available, float volume, bool muted) => MarkDirty();
     private void OnRouteChanged(string key) => MarkDirty();
+    private void OnMediaChanged() => MarkDirty();
     private void OnSettingsChanged() => MarkDirty();
 
     /// <summary>Várias mudanças seguidas viram uma mensagem só, no máximo uma a cada 50 ms.</summary>
@@ -193,12 +197,41 @@ internal sealed class RemoteSession
                     routes.Add(new RemoteRoute(d.Id, DeviceGlyph.For(d.FormFactor), d.ShortName,
                         string.Equals(d.Id, effective, StringComparison.OrdinalIgnoreCase)));
             }
+            var info = hub.Media.FirstOrDefault(m => m.Key == g.Key);
             apps.Add(new RemoteApp(RemoteProtocol.IconId(g.Key), g.Key, g.Name, (int)Math.Round(Math.Clamp(g.Volume, 0f, 1f) * 100.0),
-                g.Muted, g.IsSystem, routes));
+                g.Muted, g.IsSystem, routes, info is null ? null : ToRemote(info, g.Name)));
+        }
+        // linhas só de mídia (D9): no fim, sem volume e sem rotas
+        foreach (var m in hub.Media)
+        {
+            if (m.Key is not null) continue;
+            var key = MediaKeyPrefix + m.Aumid;
+            var name = hub.MediaAppName(m.Aumid);
+            apps.Add(new RemoteApp(RemoteProtocol.IconId(key), key, name, 0, false, false, Array.Empty<RemoteRoute>(), ToRemote(m, name), true));
         }
 
         return new RemoteState(outputs, hub.MasterAvailable, (int)Math.Round(Math.Clamp(hub.MasterVolume, 0f, 1f) * 100.0),
             hub.MasterMuted, apps);
+    }
+
+    internal const string MediaKeyPrefix = "midia:";
+
+    private static RemoteMedia ToRemote(MediaInfo m, string appName) =>
+        new(string.IsNullOrWhiteSpace(m.Title) ? appName : m.Title, m.Artist, m.IsPlaying, m.CanPrev, m.CanPlayPause, m.CanNext);
+
+    /// <summary>AUMID da mídia da linha (de som ou só de mídia), ou nulo quando a chave não existe.</summary>
+    private string? MediaAumidOf(string key)
+    {
+        if (key.StartsWith(MediaKeyPrefix, StringComparison.Ordinal))
+        {
+            var aumid = key.Substring(MediaKeyPrefix.Length);
+            foreach (var m in _hub.Media)
+                if (m.Key is null && string.Equals(m.Aumid, aumid, StringComparison.Ordinal)) return m.Aumid;
+            return null;
+        }
+        foreach (var m in _hub.Media)
+            if (m.Key == key) return m.Aumid;
+        return null;
     }
 
     // ---- Comandos (D8): validar e executar na thread da tela ----
@@ -225,6 +258,14 @@ internal sealed class RemoteSession
                 break;
             case RouteCommand r when HasApp(r.App) && HasDevice(r.DeviceId):
                 _hub.ClickRoute(r.App, r.DeviceId);
+                break;
+            case MediaCommand md when MediaAumidOf(md.App) is { } aumid:
+                switch (md.Action)
+                {
+                    case MediaAction.Previous: _hub.MediaPrevious(aumid); break;
+                    case MediaAction.PlayPause: _hub.MediaPlayPause(aumid); break;
+                    case MediaAction.Next: _hub.MediaNext(aumid); break;
+                }
                 break;
             // chave ou id desconhecido: ignorado (D8)
         }

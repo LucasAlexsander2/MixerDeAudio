@@ -63,7 +63,7 @@ try {
   $temaSel = ThemeSelected $h
   $sw = StartupSwitchState $h
   $sl = FindById $h 'SessionList'
-  $escondida = (-not $sl) -or $sl.Current.IsOffscreen
+  $escondida = (-not $sl) -or ($null -eq (FindById $h 'DeviceList'))  # modo oculto: a janela inteira fica fora das telas (IsOffscreen sempre verdadeiro), entao a pagina principal escondida se prova pela ausencia do DeviceList
   $shot = Shot $h 'f5-config'
   Resultado '5.1 Pagina de configuracoes' ([bool]($nomesOk -and $checks.Count -eq $todas.Count -and $temaSel -eq 'auto' -and $sw -eq $regLigado -and $escondida)) "FavoriteCheck=$($checks.Count) (saidas=$($todas.Count)) nomes iguais=$nomesOk tema marcado='$temaSel' (esperado auto) StartupSwitch=$sw (registro=$regLigado) SessionList escondida=$escondida captura=$shot"
 

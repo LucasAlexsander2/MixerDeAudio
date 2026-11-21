@@ -60,6 +60,24 @@ public class CommandLineTests
     }
 
     [Fact]
+    public void TesteOculto_SozinhoLigaAFlagSemComando()
+    {
+        var r = CommandLine.Parse(["--teste-oculto"]);
+        Assert.True(r.HiddenTest);
+        Assert.Equal(AppCommand.Default, r.Command);
+        Assert.False(CommandLine.Parse(["--abrir"]).HiddenTest);
+    }
+
+    [Fact]
+    public void TesteOculto_JuntoComOutrosArgumentos()
+    {
+        var r = CommandLine.ParseLine("--teste-oculto --celular-local --abrir-sem-foco");
+        Assert.True(r.HiddenTest);
+        Assert.True(r.CelularLocal);
+        Assert.Equal(AppCommand.OpenNoFocus, r.Command);
+    }
+
+    [Fact]
     public void SemAparar_JuntoComAbrirSemFoco()
     {
         var r = CommandLine.Parse(["--abrir-sem-foco", "--sem-aparar"]);

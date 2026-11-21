@@ -26,6 +26,7 @@ public partial class App : Application
     private AudioHub _hub = null!;
     private RemoteServer? _remote;
     private bool _noTrim;
+    private bool _hiddenTest;
     private bool _exiting;
 
     /// <summary>Fila da thread da tela, para receber a ativação redirecionada (que chega em outra thread).</summary>
@@ -56,8 +57,14 @@ public partial class App : Application
         Log.Write("iniciado");
         Settings = SettingsStore.Load();
         Log.Write($"config carregada (favoritos={Settings.Current.Favoritos.Count}, tema={Settings.Current.Tema})");
-        _tray = new TrayIconService(onToggle: Toggle, onOpen: () => Open(activate: true, atCursor: true, checkGate: false),
-            onSettings: () => Open(activate: true, atCursor: true, checkGate: false, settings: true), onExit: ExitApp);
+        // Primeira cópia: sem argumento só cria o ícone; com argumento, executa o comando (D8).
+        var commandLine = CommandLine.Parse(Program.StartupArguments);
+        _noTrim = commandLine.NoTrim;
+        _hiddenTest = commandLine.HiddenTest;
+        // Modo de teste oculto (Fase 7): sem ícone na bandeja.
+        if (!_hiddenTest)
+            _tray = new TrayIconService(onToggle: Toggle, onOpen: () => Open(activate: true, atCursor: true, checkGate: false),
+                onSettings: () => Open(activate: true, atCursor: true, checkGate: false, settings: true), onExit: ExitApp);
         TrayIconService.SetEfficiencyMode(true);
 
         _trimTimer = DispatcherQueue.GetForCurrentThread().CreateTimer();
@@ -69,10 +76,6 @@ public partial class App : Application
         _hub = new AudioHub(DispatcherQueue.GetForCurrentThread());
         _hub.BecameActive += OnHubActive;
         _hub.BecameIdle += OnHubIdle;
-
-        // Primeira cópia: sem argumento só cria o ícone; com argumento, executa o comando (D8).
-        var commandLine = CommandLine.Parse(Program.StartupArguments);
-        _noTrim = commandLine.NoTrim;
 
         // Servidor do celular (Fase 6, D10 e D12): desligado por padrão; liga na partida e quando o interruptor muda
         _remote = new RemoteServer(_hub, Settings, UiQueue!, commandLine.CelularLocal);
@@ -104,6 +107,7 @@ public partial class App : Application
     {
         if (_exiting) return;
         if (commandLine.NoTrim) _noTrim = true;
+        if (commandLine.HiddenTest) _hiddenTest = true;
         switch (commandLine.Command)
         {
             case AppCommand.Default:
@@ -143,6 +147,7 @@ public partial class App : Application
         RunOnUi(() =>
         {
             if (_exiting) return;
+            if (_hiddenTest) activate = false; // modo de teste oculto: nunca ativa a janela
             if (_flyout is not null)
             {
                 if (settings) _flyout.ShowSettings();
@@ -157,6 +162,13 @@ public partial class App : Application
             if (settings) _flyout.ShowSettings();
             timer.Stop();
             Log.Write($"sessoes carregadas (apps={_flyout.LoadedApps}, sessoes={_flyout.LoadedSessions}, saidas={_flyout.LoadedDevices}, {timer.ElapsedMilliseconds} ms)");
+            Log.Write($"janela: posicao calculada {rect.X},{rect.Y},{rect.Width},{rect.Height}");
+            if (_hiddenTest)
+            {
+                try { rect = HiddenRect(rect); }
+                catch (Exception ex) { Log.Write($"ERRO no modo oculto: {ex}"); }
+            }
+            Log.Write($"janela: apresentando em {rect.X},{rect.Y}");
             _flyout.Present(rect, activate);
             Log.Write("janela aberta");
         });
@@ -181,6 +193,25 @@ public partial class App : Application
         var scale = NativeMethods.GetScaleAt(cursor.X, cursor.Y);
         return FlyoutPlacement.Compute(cursor, ToPixelRect(area.OuterBounds), ToPixelRect(area.WorkArea), scale,
             FlyoutWindow.WidthDip, FlyoutWindow.HeightDip);
+    }
+
+    /// <summary>
+    /// Modo de teste oculto: mesmo tamanho, mas abaixo e à esquerda da união de todos os monitores (x = mínimo - 4000), onde
+    /// nenhuma tela mostra. A posição calculada de verdade já foi para o log.
+    /// </summary>
+    private static PixelRect HiddenRect(PixelRect rect)
+    {
+        var minX = int.MaxValue;
+        var maxBottom = int.MinValue;
+        var areas = DisplayArea.FindAll();
+        for (var i = 0; i < areas.Count; i++)
+        {
+            var area = areas[i];
+            minX = Math.Min(minX, area.OuterBounds.X);
+            maxBottom = Math.Max(maxBottom, area.OuterBounds.Y + area.OuterBounds.Height);
+        }
+        if (minX == int.MaxValue) { minX = 0; maxBottom = 0; }
+        return new PixelRect(minX - 4000, maxBottom + 4000, rect.Width, rect.Height);
     }
 
     private static PixelRect ToPixelRect(RectInt32 r) => new(r.X, r.Y, r.Width, r.Height);

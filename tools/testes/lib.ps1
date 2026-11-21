@@ -1,7 +1,7 @@
 ﻿# Auxiliares dos roteiros de tela do Mixer de Áudio.
 # Regras: nada de teclas nem cliques reais, nada de trazer janela para a frente (o usuário pode estar jogando).
 # Só linha de comando do app, UI Automation, GetWindowRect e PrintWindow.
-Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, System.Drawing
+Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, System.Drawing, System.Windows.Forms
 Add-Type @"
 using System; using System.Collections.Generic; using System.Runtime.InteropServices; using System.Text;
 public static class MW {
@@ -37,9 +37,18 @@ New-Item -ItemType Directory -Force $script:out | Out-Null
 
 function AppProcs { @(Get-Process MixerDeAudio -ErrorAction SilentlyContinue) }
 
-# Abre a primeira cópia (sem argumento por padrão) e espera o processo existir.
+# Modo de teste oculto (Fase 7): StartApp sempre passa --teste-oculto, entao nenhuma janela nem icone do app aparece nas telas
+# (a janela abre abaixo e a esquerda de todos os monitores, sem ativacao, e a posicao calculada vai para o log).
+# Se o app do usuario (publicado\MixerDeAudio.exe) estava rodando quando o script comecou, ele e reaberto normalmente, sem
+# argumentos, quando o roteiro termina (ReabrirAppDoUsuario, chamada no fim de cada roteiro de fora): o usuario nao fica sem o mixer.
+$script:usuarioRodava = @(Get-Process MixerDeAudio -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $script:exe }).Count -gt 0
+# Chamar no fim do roteiro de fora (depois de StopAll e das conferencias de processos restantes).
+function ReabrirAppDoUsuario {
+  if ($script:usuarioRodava -and @(Get-Process MixerDeAudio -ErrorAction SilentlyContinue).Count -eq 0) { Start-Process $script:exe | Out-Null; 'app do usuario reaberto (sem argumentos)' }
+}
+# Abre a primeira cópia (sempre com --teste-oculto) e espera o processo existir.
 function StartApp([string[]]$argList = @()) {
-  if ($argList.Count -gt 0) { Start-Process $script:exe -ArgumentList $argList | Out-Null } else { Start-Process $script:exe | Out-Null }
+  Start-Process $script:exe -ArgumentList (@('--teste-oculto') + $argList) | Out-Null
   $sw = [Diagnostics.Stopwatch]::StartNew()
   while ($sw.Elapsed.TotalSeconds -lt 10 -and (AppProcs).Count -eq 0) { Start-Sleep -Milliseconds 100 }
 }
@@ -115,9 +124,9 @@ function DefinirSessao([int]$procId, [string]$volume, [string]$mudo = '') {
 }
 
 # Inicia um tocador de teste (silêncio) e espera a sessão dele aparecer com o nome. -B usa o .exe alternativo (tocar-b).
-function StartPlayer([string]$nome, [switch]$B, [int]$segundos = 900) {
+function StartPlayer([string]$nome, [switch]$B, [int]$segundos = 900, [string[]]$Extra = @()) {
   $exeName = if ($B) { 'tocar-b' } else { 'tocar' }
-  $p = Start-Process "$script:ferr\$exeName-bin\$exeName.exe" -ArgumentList @('--nome', "`"$nome`"", '--segundos', "$segundos") -PassThru -WindowStyle Hidden
+  $p = Start-Process "$script:ferr\$exeName-bin\$exeName.exe" -ArgumentList (@('--nome', "`"$nome`"", '--segundos', "$segundos") + $Extra) -PassThru -WindowStyle Hidden
   [void]$script:players.Add($p)
   WaitFor { $s = SessionOf $p.Id; $s -and $s.Nome -eq $nome } 8 | Out-Null
   # O Windows guarda volume e mudo por app: se um roteiro anterior deixou o tocador mudo, ele já nasce mudo. Tira do mudo (só tocador de teste).
@@ -311,7 +320,15 @@ function BackupConfig {
     RunOutros = RegOutros $script:RunPath; AprovadoOutros = RegOutros $script:ApprovedPath
   }
   New-Item -ItemType Directory -Force $script:bkDir | Out-Null
-  if ($bytes) { [IO.File]::WriteAllBytes("$script:bkDir\config.json.bak", $bytes) } else { Remove-Item "$script:bkDir\config.json.bak" -Force -ErrorAction SilentlyContinue }
+  # Copia em disco com data e hora, nunca sobrescrita nem apagada por outro BackupConfig (Fase 7: um BackupConfig aninhado
+  # apagou a copia do usuario). Guarda as 30 mais recentes; copia igual a ultima nao e repetida.
+  if ($bytes) {
+    $ultima = Get-ChildItem "$script:bkDir\config-*.json" -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1
+    if (-not $ultima -or -not [Linq.Enumerable]::SequenceEqual([byte[]][IO.File]::ReadAllBytes($ultima.FullName), [byte[]]$bytes)) {
+      [IO.File]::WriteAllBytes("$script:bkDir\config-$(Get-Date -Format 'yyyyMMdd-HHmmss-fff').json", $bytes)
+    }
+    Get-ChildItem "$script:bkDir\config-*.json" | Sort-Object Name -Descending | Select-Object -Skip 30 | Remove-Item -Force
+  }
   @("config.json existia: $($script:backup.ConfigExiste)", "Run MixerDeAudio: $(RegTexto $script:backup.Run)", "StartupApproved MixerDeAudio: $(RegTexto $script:backup.Aprovado)") |
     Set-Content "$script:bkDir\estado.txt" -Encoding utf8
 }
@@ -510,3 +527,59 @@ function CelularEsperar([string]$arquivo, [int64]$desde, [scriptblock]$teste, [d
   $null
 }
 function AppDoEstado($estado, [string]$nome) { if ($estado) { @($estado.apps) | Where-Object { $_.nome -eq $nome } | Select-Object -First 1 } }
+
+# ---------------- Fase 7: controles de musica por app ----------------
+# Seguranca (P3): os botoes de midia so sao acionados (UIA Invoke, sem clique) em linhas "MX-teste*" ou "tocar*", que sao as
+# fontes de teste (tocar.cs com --midia). Qualquer outra linha (Opera, Spotify...) e recusada com throw: as sessoes de midia
+# reais so sao lidas, nunca recebem botao nem Try*.
+function AssertFonteMidia([string]$nome) {
+  if (-not ($nome.StartsWith('MX-teste') -or $nome.StartsWith('tocar'))) { throw "RECUSADO: '$nome' nao e uma fonte de midia de teste." }
+}
+# Texto "Titulo <ponto medio> Artista" como o app monta (o ponto medio e o caractere U+00B7).
+function MidiaTexto([string]$titulo, [string]$artista) { if ($artista) { "$titulo $([char]0x00B7) $artista" } else { $titulo } }
+# Inicia uma fonte de midia de teste. -SemAudio nao toca nada (so o controle de midia) e nao espera sessao de audio.
+# -Log: arquivo onde a fonte anota "botao: <Botao>" a cada botao recebido (apagado antes de iniciar).
+function StartMidia([string]$nome, [string]$log, [switch]$B, [switch]$SemAudio, [int]$segundos = 900) {
+  Remove-Item $log -Force -ErrorAction SilentlyContinue
+  $extra = @('--midia', '--log', "`"$log`"")
+  if ($SemAudio) { $extra += '--sem-audio' }
+  $exeName = if ($B) { 'tocar-b' } else { 'tocar' }
+  if ($SemAudio) {
+    $p = Start-Process "$script:ferr\$exeName-bin\$exeName.exe" -ArgumentList (@('--nome', "`"$nome`"", '--segundos', "$segundos") + $extra) -PassThru -WindowStyle Hidden
+    [void]$script:players.Add($p)
+    $p
+  } else {
+    StartPlayer $nome -B:$B -segundos $segundos -Extra $extra
+  }
+}
+# Linhas "botao: X" anotadas pela fonte (so o nome do botao).
+function MidiaLogLer([string]$log) {
+  if (-not (Test-Path $log)) { return @() }
+  @(Get-Content $log -Encoding utf8 -ErrorAction SilentlyContinue | Where-Object { $_ -match '^botao: ' } | ForEach-Object { $_.Substring(7).Trim() })
+}
+# Texto da 3a linha (MediaTitle) da linha do app, ou $null se nao existe (sem midia). So leitura.
+function MidiaTitulo([IntPtr]$h, [string]$app) {
+  $row = RowElement $h $app; if (-not $row) { return $null }
+  $e = RowChild $row 'MediaTitle'; if ($e) { $e.Current.Name } else { $null }
+}
+# Botoes de midia da linha: Id, Nome (acessibilidade) e Habilitado. So leitura.
+function MidiaBotoes([IntPtr]$h, [string]$app) {
+  $row = RowElement $h $app; if (-not $row) { return @() }
+  foreach ($id in 'MediaPrev', 'MediaPlayPause', 'MediaNext') {
+    $e = RowChild $row $id
+    if ($e) { [pscustomobject]@{ Id = $id; Nome = $e.Current.Name; Habilitado = $e.Current.IsEnabled } }
+  }
+}
+# A linha tem um controle com esse AutomationId? (ex.: 'SessionVolume', 'SessionMute', 'RouteButton'). So leitura.
+function RowTem([IntPtr]$h, [string]$app, [string]$id) {
+  $row = RowElement $h $app; if (-not $row) { return $false }
+  $null -ne (RowChild $row $id)
+}
+# InvokePattern.Invoke no botao de midia ('MediaPrev', 'MediaPlayPause' ou 'MediaNext'). SO em linhas MX-teste* ou tocar*.
+function MidiaInvoke([IntPtr]$h, [string]$app, [string]$botao) {
+  AssertFonteMidia $app
+  if ($botao -notin 'MediaPrev', 'MediaPlayPause', 'MediaNext') { throw "botao de midia desconhecido: $botao" }
+  $row = RowElement $h $app; if (-not $row) { throw "linha '$app' nao encontrada" }
+  $e = RowChild $row $botao; if (-not $e) { throw "botao '$botao' nao encontrado em '$app'" }
+  $e.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
+}

@@ -12,7 +12,8 @@
 //   celular.exe segurar <porta> <chave> <segundos> [arquivo-parar]
 //                                                    -> fica conectado e imprime "PRONTO" e depois "<epoch ms>\t<estado>" a cada
 //                                                       mensagem; sai ao passar o tempo ou quando o arquivo-parar existir
-// SEGURANÇA: "enviar" só aceita volume, mudo e rota para apps cujo nome comece com "MX-teste" (confere no estado recebido) e
+// SEGURANÇA: "enviar" só aceita volume, mudo e rota para apps cujo nome comece com "MX-teste" (confere no estado recebido). O comando
+// "midia" (Fase 7) vale só para apps "MX-teste*" ou para linhas só de mídia (soMidia) cujo nome comece com "tocar"; o resto é recusado. Também
 // RECUSA SEMPRE (código 3) geral, geralMudo e padrao, e qualquer tipo desconhecido. Nenhum comando mexe na saída padrão nem no
 // volume ou mudo gerais. Recusa qualquer porta que não seja a do 127.0.0.1.
 using System.Diagnostics;
@@ -162,9 +163,9 @@ static async Task<int> Enviar(int porta, string chave, string json)
         Console.Error.WriteLine($"RECUSADO: '{tipo}' mexeria no volume geral ou na saida padrao; o celular de teste nunca faz isso.");
         return 3;
     }
-    if (tipo is not ("volume" or "mudo" or "rota") || string.IsNullOrEmpty(app))
+    if (tipo is not ("volume" or "mudo" or "rota" or "midia") || string.IsNullOrEmpty(app))
     {
-        Console.Error.WriteLine("RECUSADO: so volume, mudo e rota de um app MX-teste.");
+        Console.Error.WriteLine("RECUSADO: so volume, mudo, rota e midia de uma fonte de teste.");
         return 3;
     }
 
@@ -172,12 +173,19 @@ static async Task<int> Enviar(int porta, string chave, string json)
     var estado = await ProximoEstado(c, 5000);
     if (estado is null) { Console.Error.WriteLine("erro: sem estado"); return 2; }
     string? nome = null;
+    var soMidia = false;
     using (var doc = JsonDocument.Parse(estado))
     {
         foreach (var item in doc.RootElement.GetProperty("apps").EnumerateArray())
-            if (item.GetProperty("chave").GetString() == app) nome = item.GetProperty("nome").GetString();
+            if (item.GetProperty("chave").GetString() == app)
+            {
+                nome = item.GetProperty("nome").GetString();
+                soMidia = item.TryGetProperty("soMidia", out var sm) && sm.ValueKind == JsonValueKind.True;
+            }
     }
-    if (nome is null || !nome.StartsWith("MX-teste", StringComparison.Ordinal))
+    var ehTeste = nome is not null && (nome.StartsWith("MX-teste", StringComparison.Ordinal)
+        || (tipo == "midia" && soMidia && nome.StartsWith("tocar", StringComparison.Ordinal)));
+    if (!ehTeste)
     {
         Console.Error.WriteLine($"RECUSADO: '{nome ?? app}' nao e um tocador de teste (MX-teste).");
         return 3;

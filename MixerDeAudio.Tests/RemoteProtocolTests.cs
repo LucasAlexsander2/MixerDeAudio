@@ -1,4 +1,5 @@
 using System.Text.Json;
+using MixerDeAudio.Audio;
 using MixerDeAudio.Remote;
 
 namespace MixerDeAudio.Tests;
@@ -207,5 +208,55 @@ public class RemoteProtocolTests
         var json = prefixo + new string('a', RemoteProtocol.MaxMessageBytes - prefixo.Length - sufixo.Length) + sufixo;
         Assert.Equal(RemoteProtocol.MaxMessageBytes, System.Text.Encoding.UTF8.GetByteCount(json));
         Assert.Equal(ParseStatus.Ok, RemoteProtocol.ParseCommand(json, out _));
+    }
+
+    [Fact]
+    public void Estado_Midia_ESoMidia()
+    {
+        var estado = new RemoteState(Array.Empty<RemoteOutput>(), true, 10, false, new[]
+        {
+            new RemoteApp("0123456789abcdef", "k", "Player", 50, false, false, Array.Empty<RemoteRoute>(),
+                new RemoteMedia("Faixa 1", "Artista \"X\"", true, false, true, true)),
+            new RemoteApp("fedcba9876543210", "midia:Spotify!", "Spotify", 0, false, false, Array.Empty<RemoteRoute>(),
+                new RemoteMedia("Outra", "", false, true, true, true), true),
+            new RemoteApp("aaaaaaaaaaaaaaaa", "sem", "Sem mídia", 1, false, false, Array.Empty<RemoteRoute>()),
+        });
+        using var doc = JsonDocument.Parse(RemoteProtocol.BuildState(estado));
+        var apps = doc.RootElement.GetProperty("apps");
+        var m = apps[0].GetProperty("midia");
+        Assert.False(apps[0].GetProperty("soMidia").GetBoolean());
+        Assert.Equal("Faixa 1", m.GetProperty("titulo").GetString());
+        Assert.Equal("Artista \"X\"", m.GetProperty("artista").GetString());
+        Assert.True(m.GetProperty("tocando").GetBoolean());
+        Assert.False(m.GetProperty("ant").GetBoolean());
+        Assert.True(m.GetProperty("pp").GetBoolean());
+        Assert.True(m.GetProperty("prox").GetBoolean());
+        Assert.True(apps[1].GetProperty("soMidia").GetBoolean());
+        Assert.Equal("midia:Spotify!", apps[1].GetProperty("chave").GetString());
+        Assert.False(apps[1].GetProperty("midia").GetProperty("tocando").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, apps[2].GetProperty("midia").ValueKind);
+        Assert.False(apps[2].GetProperty("soMidia").GetBoolean());
+    }
+
+    [Theory]
+    [InlineData("ant", MediaAction.Previous)]
+    [InlineData("pp", MediaAction.PlayPause)]
+    [InlineData("prox", MediaAction.Next)]
+    public void Midia_EhLido(string acao, MediaAction esperado)
+    {
+        Assert.Equal(ParseStatus.Ok, RemoteProtocol.ParseCommand("{\"t\":\"midia\",\"app\":\"midia:x!y\",\"acao\":\"" + acao + "\"}", out var c));
+        Assert.Equal(new MediaCommand("midia:x!y", esperado), c);
+    }
+
+    [Theory]
+    [InlineData("{\"t\":\"midia\",\"app\":\"k\",\"acao\":\"parar\"}")]
+    [InlineData("{\"t\":\"midia\",\"app\":\"k\"}")]
+    [InlineData("{\"t\":\"midia\",\"acao\":\"pp\"}")]
+    [InlineData("{\"t\":\"midia\",\"app\":\"\",\"acao\":\"pp\"}")]
+    [InlineData("{\"t\":\"midia\",\"app\":\"k\",\"acao\":1}")]
+    public void Midia_Invalida(string json)
+    {
+        Assert.Equal(ParseStatus.InvalidFields, RemoteProtocol.ParseCommand(json, out var c));
+        Assert.Null(c);
     }
 }

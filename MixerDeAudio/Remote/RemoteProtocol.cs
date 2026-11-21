@@ -4,6 +4,7 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using MixerDeAudio.Audio;
 
 namespace MixerDeAudio.Remote;
 
@@ -13,8 +14,12 @@ public sealed record RemoteOutput(string Id, string Name, string Glyph, bool Act
 /// <summary>Botão de saída de um app.</summary>
 public sealed record RemoteRoute(string Id, string Glyph, string Name, bool Active);
 
-/// <summary>Um app (uma linha da janelinha).</summary>
-public sealed record RemoteApp(string IconId, string Key, string Name, int Volume, bool Muted, bool IsSystem, IReadOnlyList<RemoteRoute> Routes);
+/// <summary>Mídia de um app (Fase 7, D9): faixa, estado e quais botões o app oferece.</summary>
+public sealed record RemoteMedia(string Title, string Artist, bool Playing, bool CanPrev, bool CanPlayPause, bool CanNext);
+
+/// <summary>Um app (uma linha da janelinha). <paramref name="MediaOnly"/>: linha só de mídia (sem volume, mudo nem rotas).</summary>
+public sealed record RemoteApp(string IconId, string Key, string Name, int Volume, bool Muted, bool IsSystem, IReadOnlyList<RemoteRoute> Routes,
+    RemoteMedia? Media = null, bool MediaOnly = false);
 
 /// <summary>Tudo o que o celular mostra (D8).</summary>
 public sealed record RemoteState(IReadOnlyList<RemoteOutput> Outputs, bool MasterAvailable, int MasterVolume, bool MasterMuted, IReadOnlyList<RemoteApp> Apps);
@@ -27,6 +32,7 @@ public sealed record MasterVolumeCommand(int Volume) : RemoteCommand;
 public sealed record MasterMuteCommand(bool Muted) : RemoteCommand;
 public sealed record DefaultDeviceCommand(string DeviceId) : RemoteCommand;
 public sealed record RouteCommand(string App, string DeviceId) : RemoteCommand;
+public sealed record MediaCommand(string App, MediaAction Action) : RemoteCommand;
 
 /// <summary>Resultado da leitura de uma mensagem do celular.</summary>
 public enum ParseStatus
@@ -102,6 +108,22 @@ public static class RemoteProtocol
                     w.WriteEndObject();
                 }
                 w.WriteEndArray();
+                w.WriteBoolean("soMidia", a.MediaOnly);
+                if (a.Media is { } md)
+                {
+                    w.WriteStartObject("midia");
+                    w.WriteString("titulo", md.Title);
+                    w.WriteString("artista", md.Artist);
+                    w.WriteBoolean("tocando", md.Playing);
+                    w.WriteBoolean("ant", md.CanPrev);
+                    w.WriteBoolean("pp", md.CanPlayPause);
+                    w.WriteBoolean("prox", md.CanNext);
+                    w.WriteEndObject();
+                }
+                else
+                {
+                    w.WriteNull("midia");
+                }
                 w.WriteEndObject();
             }
             w.WriteEndArray();
@@ -150,6 +172,12 @@ public static class RemoteProtocol
                 case "rota":
                     if (!Str(root, "app", out var rapp) || !Str(root, "id", out var rid)) return ParseStatus.InvalidFields;
                     command = new RouteCommand(rapp, rid);
+                    return ParseStatus.Ok;
+                case "midia":
+                    if (!Str(root, "app", out var mapp) || !Str(root, "acao", out var acao)) return ParseStatus.InvalidFields;
+                    MediaAction? ma = acao switch { "ant" => MediaAction.Previous, "pp" => MediaAction.PlayPause, "prox" => MediaAction.Next, _ => null };
+                    if (ma is null) return ParseStatus.InvalidFields;
+                    command = new MediaCommand(mapp, ma.Value);
                     return ParseStatus.Ok;
                 default:
                     return ParseStatus.UnknownType;

@@ -20,10 +20,18 @@ public sealed class SessionRowViewModel : ObservableObject
     private bool _muted;
     private ImageSource? _icon;
 
-    public SessionRowViewModel(GroupSnapshot snapshot, Action<string, float> setVolume, Action<string, bool> setMute)
+    private readonly Action<string, MediaAction>? _mediaCommand;
+    private MediaInfo? _media;
+
+    /// <param name="mediaCommand">Comando de mídia pelo AUMID (Fase 7, D5); nulo sem controle de mídia.</param>
+    /// <param name="mediaOnly">Linha só de mídia (D6): sem volume, mudo e saída.</param>
+    public SessionRowViewModel(GroupSnapshot snapshot, Action<string, float> setVolume, Action<string, bool> setMute,
+        Action<string, MediaAction>? mediaCommand = null, bool mediaOnly = false)
     {
         _setVolume = setVolume;
         _setMute = setMute;
+        _mediaCommand = mediaCommand;
+        IsMediaOnly = mediaOnly;
         Key = snapshot.Key;
         ExePath = snapshot.ExePath;
         IsSystem = snapshot.IsSystem;
@@ -55,7 +63,58 @@ public sealed class SessionRowViewModel : ObservableObject
             if (!SetProperty(ref _name, value)) return;
             OnPropertyChanged(nameof(MuteName));
             OnPropertyChanged(nameof(VolumeName));
+            OnPropertyChanged(nameof(PrevName));
+            OnPropertyChanged(nameof(PlayPauseName));
+            OnPropertyChanged(nameof(NextName));
+            OnPropertyChanged(nameof(MediaText));
         }
+    }
+
+    // ---- Mídia (Fase 7, D6 e D7) ----
+
+    private const string PrevGlyphChar = "";
+    private const string PlayGlyphChar = "";
+    private const string PauseGlyphChar = "";
+    private const string NextGlyphChar = "";
+
+    /// <summary>Linha só de mídia (D6): volume, mudo e saída ficam escondidos.</summary>
+    public bool IsMediaOnly { get; }
+
+    public Visibility VolumeVisibility => IsMediaOnly ? Visibility.Collapsed : Visibility.Visible;
+    public Visibility MediaVisibility => _media is null ? Visibility.Collapsed : Visibility.Visible;
+    public string PrevGlyph => PrevGlyphChar;
+    public string NextGlyph => NextGlyphChar;
+    public string PlayPauseGlyph => _media?.IsPlaying == true ? PauseGlyphChar : PlayGlyphChar;
+    public string MediaText => _media?.Text(_name) ?? string.Empty;
+    public bool PrevEnabled => _media?.CanPrev == true;
+    public bool NextEnabled => _media?.CanNext == true;
+    public bool PlayPauseEnabled => _media?.CanPlayPause == true;
+    public string PrevName => $"Faixa anterior em {_name}";
+    public string NextName => $"Próxima faixa em {_name}";
+    public string PlayPauseName => _media?.IsPlaying == true ? $"Pausar {_name}" : $"Tocar {_name}";
+
+    /// <summary>Estado de mídia da linha (nulo se o app não tem). Atualiza só o que mudou.</summary>
+    public void ApplyMedia(MediaInfo? media)
+    {
+        if (Equals(_media, media)) return;
+        _media = media;
+        OnPropertyChanged(nameof(MediaVisibility));
+        OnPropertyChanged(nameof(PlayPauseGlyph));
+        OnPropertyChanged(nameof(MediaText));
+        OnPropertyChanged(nameof(PrevEnabled));
+        OnPropertyChanged(nameof(NextEnabled));
+        OnPropertyChanged(nameof(PlayPauseEnabled));
+        OnPropertyChanged(nameof(PlayPauseName));
+    }
+
+    /// <summary>Cliques nos botões (pelo AUMID da mídia; sem mídia, nada).</summary>
+    public void OnMediaPrev() => SendMedia(MediaAction.Previous);
+    public void OnMediaPlayPause() => SendMedia(MediaAction.PlayPause);
+    public void OnMediaNext() => SendMedia(MediaAction.Next);
+
+    private void SendMedia(MediaAction action)
+    {
+        if (_media is not null) _mediaCommand?.Invoke(_media.Aumid, action);
     }
 
     /// <summary>Volume de 0 a 100. Mudar pelo slider grava no Windows; mudar pelo sistema não.</summary>

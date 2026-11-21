@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Microsoft.UI.Dispatching;
 using MixerDeAudio.Services;
 
@@ -21,6 +22,9 @@ internal sealed class AudioHub
     private DeviceMonitor? _deviceMonitor;
     private AudioSessionMonitor? _monitor;
     private AppRoutingService? _routing;
+    private MediaMonitor? _mediaMonitor;
+    private readonly AumidResolver _aumids = new(); // vive o app inteiro (caches de AUMID e .exe)
+    private IReadOnlyList<MediaInfo> _media = Array.Empty<MediaInfo>();
     private bool _masterAvailable;
     private float _masterVolume;
     private bool _masterMuted;
@@ -55,6 +59,12 @@ internal sealed class AudioHub
 
     /// <summary>Serviço da saída por app; nulo se o Windows não oferecer a interface.</summary>
     public AppRoutingService? Routing => _routing;
+
+    /// <summary>A lista de mídia (ou a ligação dela com as linhas) mudou (Fase 7, D2).</summary>
+    public event Action? MediaChanged;
+
+    /// <summary>Apps com mídia agora; <see cref="MediaInfo.Key"/> é a linha de som ligada, ou nulo (linha só de mídia). Vale enquanto houver dono.</summary>
+    public IReadOnlyList<MediaInfo> Media => _media;
 
     public bool MasterAvailable => _masterAvailable;
     public float MasterVolume => _masterVolume;
@@ -99,6 +109,11 @@ internal sealed class AudioHub
         _deviceMonitor.DeviceRemoved += _monitor.RemoveDevice;
         try { _monitor.Start(_deviceMonitor.Devices); }
         catch (Exception ex) { Log.Write($"ERRO COM ao listar sessões: {ex}"); }
+        // Fase 7, D1: a mídia nasce junto com os outros monitores e some com eles.
+        _media = Array.Empty<MediaInfo>();
+        _mediaMonitor = new MediaMonitor(_queue);
+        _mediaMonitor.Changed += OnMediaRead;
+        _mediaMonitor.Start();
         Log.Write($"audio: monitores criados (donos={_owners.Count})");
     }
 
@@ -115,6 +130,11 @@ internal sealed class AudioHub
                 _deviceMonitor.DeviceRemoved -= _monitor.RemoveDevice;
             }
         }
+        if (_mediaMonitor is not null) _mediaMonitor.Changed -= OnMediaRead;
+        _mediaMonitor?.Dispose();
+        _mediaMonitor = null;
+        _aumids.ClearPids();
+        _media = Array.Empty<MediaInfo>();
         _routing?.Dispose();
         _routing = null;
         _monitor?.Dispose();
@@ -167,14 +187,73 @@ internal sealed class AudioHub
         switch (change.Kind)
         {
             case GroupChangeKind.Added:
+                TryLoadRoute(change.Group.Key, change.Group.IsSystem);
+                RecomputeMedia(); // uma linha nova pode ficar com a mídia de uma linha só de mídia
+                break;
             case GroupChangeKind.Changed:
                 TryLoadRoute(change.Group.Key, change.Group.IsSystem);
                 break;
             case GroupChangeKind.Removed:
                 _preferred.Remove(change.Group.Key);
+                RecomputeMedia(); // a mídia que ficou sem linha vira linha só de mídia
                 break;
         }
     }
+
+    // ---- Mídia (Fase 7) ----
+
+    private void OnMediaRead() => RecomputeMedia();
+
+    /// <summary>
+    /// Liga cada mídia lida a uma linha de som (D3) e avisa se a lista ou alguma ligação mudou. Sem mídia, não toca nas
+    /// sessões. Só na thread da tela.
+    /// </summary>
+    private void RecomputeMedia()
+    {
+        if (_mediaMonitor is null || _tracker is null) return;
+        var read = _mediaMonitor.Items;
+        List<MediaInfo> next;
+        if (read.Count == 0)
+        {
+            next = new List<MediaInfo>();
+        }
+        else
+        {
+            var candidates = read.Select(m => new MediaCandidate(m.Aumid, m.IsPlaying, _aumids.ShellResolve(m.Aumid).ExePath)).ToList();
+            var groups = new List<GroupCandidate>();
+            foreach (var g in _tracker.Groups)
+            {
+                if (g.IsSystem) continue;
+                var aumids = _tracker.ProcessIds(g.Key)
+                    .Select(_aumids.ProcessAumid).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                groups.Add(new GroupCandidate(g.Key, g.ExePath, aumids));
+            }
+            var map = MediaMatcher.Match(candidates, groups);
+            next = read.Select(m => map.TryGetValue(m.Aumid, out var key) ? m with { Key = key } : m).ToList();
+        }
+        if (next.SequenceEqual(_media)) return;
+        _media = next;
+        MediaChanged?.Invoke();
+    }
+
+    /// <summary>Nome do app para a linha só de mídia: o da pasta de apps ou o do .exe sem extensão.</summary>
+    public string MediaAppName(string aumid) => MediaMatcher.NameFor(aumid, _aumids.ShellResolve(aumid).Name);
+
+    /// <summary>.exe do app para o ícone da linha só de mídia (pasta de apps; nos apps da Loja, o processo com o mesmo AUMID).</summary>
+    public string? MediaExePath(string aumid)
+    {
+        var path = _aumids.ShellResolve(aumid).ExePath;
+        return !string.IsNullOrWhiteSpace(path) && System.IO.File.Exists(path) ? path : _aumids.StoreExePath(aumid);
+    }
+
+    /// <summary>Faixa anterior no app com esse AUMID (D5).</summary>
+    public void MediaPrevious(string aumid) => _mediaMonitor?.Execute(aumid, MediaAction.Previous);
+
+    /// <summary>Play ou pausa no app com esse AUMID (D5).</summary>
+    public void MediaPlayPause(string aumid) => _mediaMonitor?.Execute(aumid, MediaAction.PlayPause);
+
+    /// <summary>Próxima faixa no app com esse AUMID (D5).</summary>
+    public void MediaNext(string aumid) => _mediaMonitor?.Execute(aumid, MediaAction.Next);
 
     // ---- Comandos (D2): gravam e avisam todos os consumidores ----
 

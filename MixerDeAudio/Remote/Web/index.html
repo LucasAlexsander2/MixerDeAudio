@@ -43,6 +43,10 @@ input[type=range]{flex:1;min-width:0;height:44px;margin:0;accent-color:var(--acc
 .routes button{font-size:14px;display:flex;align-items:center;gap:6px;padding:0 10px}
 .card.off{opacity:.55}
 #empty{color:var(--dim);text-align:center;margin:24px 0}
+.media{display:flex;align-items:center;gap:6px;margin-top:6px}
+.media button{flex:none;width:44px;font-size:18px;padding:0}
+.media button:disabled{opacity:.4}
+.mt{flex:1;min-width:0;margin-left:4px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .lbl{color:var(--dim);font-size:13px;margin:4px 0 2px}
 </style>
 </head>
@@ -182,7 +186,9 @@ function render(s){
     if(!r)r=rows[a.chave]=makeRow(a);
     r.name.textContent=a.nome;
     setSlider(r.sl,r.val,a.chave,a.volume);
-    muteIcon(r.mute,a.mudo);
+    r.mute.hidden=r.line.hidden=!!a.soMidia;
+    if(!a.soMidia)muteIcon(r.mute,a.mudo);
+    mediaRow(r,a);
     r.mute.setAttribute('aria-label','Mudo: '+a.nome);r.sl.setAttribute('aria-label','Volume de '+a.nome);
     var rs=JSON.stringify(a.rotas);
     if(r.sig!==rs){
@@ -199,6 +205,17 @@ function render(s){
   Object.keys(rows).forEach(function(k){if(!seen[k]){rows[k].root.remove();delete rows[k];}});
   $('empty').hidden=s.apps.length>0;
 }
+function mediaRow(r,a){
+  var md=a.midia;
+  r.media.hidden=!md;
+  if(!md)return;
+  r.prev.disabled=!md.ant;r.next.disabled=!md.prox;r.pp.disabled=!md.pp;
+  r.pp.textContent=md.tocando?'⏸':'▶';
+  r.pp.setAttribute('aria-label',(md.tocando?'Pausar ':'Tocar ')+a.nome);
+  r.prev.setAttribute('aria-label','Faixa anterior em '+a.nome);
+  r.next.setAttribute('aria-label','Próxima faixa em '+a.nome);
+  r.mt.textContent=md.artista?md.titulo+' · '+md.artista:md.titulo;
+}
 function makeRow(a){
   var root=el('div','card'),top=el('div','top'),ico=el('span','ico'),name=el('span','name'),mute=el('button','mute');
   var img=new Image();img.alt='';img.width=img.height=32;img.className='ico';
@@ -208,10 +225,15 @@ function makeRow(a){
   var sl=el('input');sl.type='range';sl.min=0;sl.max=100;sl.step=1;
   var val=el('span','val'),line=el('div','sl');line.append(sl,val);
   var routes=el('div','routes');
-  root.append(top,line,routes);
+  var media=el('div','media'),prev=el('button','','⏮'),pp=el('button',''),next=el('button','','⏭'),mt=el('span','mt');
+  media.append(prev,pp,next,mt);media.hidden=true;
+  root.append(top,line,routes,media);
   mute.onclick=function(){var cur=mute.classList.contains('muted');send({t:'mudo',app:a.chave,m:!cur});};
+  prev.onclick=function(){send({t:'midia',app:a.chave,acao:'ant'});};
+  pp.onclick=function(){send({t:'midia',app:a.chave,acao:'pp'});};
+  next.onclick=function(){send({t:'midia',app:a.chave,acao:'prox'});};
   bindSlider(sl,a.chave,val,function(v){return{t:'volume',app:a.chave,v:v};});
-  return{root:root,name:name,sl:sl,val:val,mute:mute,routes:routes,sig:null};
+  return{root:root,name:name,sl:sl,val:val,mute:mute,line:line,routes:routes,media:media,prev:prev,pp:pp,next:next,mt:mt,sig:null};
 }
 bindSlider($('ms'),'g',$('mv'),function(v){return{t:'geral',v:v};});
 $('mm').onclick=function(){send({t:'geralMudo',m:!$('mm').classList.contains('muted')});};

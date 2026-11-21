@@ -96,7 +96,7 @@
                             <Grid AutomationProperties.AutomationId="SessionRow"
                                   AutomationProperties.Name="{x:Bind Name, Mode=OneWay}"
                                   AutomationProperties.AccessibilityView="Content"
-                                  Height="56" ColumnSpacing="12">
+                                  MinHeight="56" ColumnSpacing="12">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="24" />
                                     <ColumnDefinition Width="*" />
@@ -111,6 +111,7 @@
 
                                 <Grid Grid.Column="1" RowSpacing="0">
                                     <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
                                     </Grid.RowDefinitions>
@@ -144,7 +145,7 @@
                                             </ItemsControl.ItemTemplate>
                                         </ItemsControl>
                                     </Grid>
-                                    <Grid Grid.Row="1" ColumnSpacing="8">
+                                    <Grid Grid.Row="1" ColumnSpacing="8" Visibility="{x:Bind VolumeVisibility}">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="Auto" />
                                             <ColumnDefinition Width="*" />
@@ -165,6 +166,43 @@
                                         <TextBlock Grid.Column="2" AutomationProperties.AutomationId="SessionValue"
                                                    Text="{x:Bind ValueText, Mode=OneWay}" VerticalAlignment="Center"
                                                    TextAlignment="Right" Opacity="0.8" />
+                                    </Grid>
+                                    <!-- Fase 7, D7: 3ª linha, só nos apps com mídia -->
+                                    <Grid Grid.Row="2" ColumnSpacing="4" Margin="0,2,0,2"
+                                          Visibility="{x:Bind MediaVisibility, Mode=OneWay}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Button AutomationProperties.AutomationId="MediaPrev"
+                                                AutomationProperties.Name="{x:Bind PrevName, Mode=OneWay}"
+                                                ToolTipService.ToolTip="{x:Bind PrevName, Mode=OneWay}"
+                                                IsEnabled="{x:Bind PrevEnabled, Mode=OneWay}" Click="{x:Bind OnMediaPrev}"
+                                                Grid.Column="0" Width="28" Height="24" Padding="0"
+                                                Background="Transparent" BorderThickness="0">
+                                            <FontIcon Glyph="{x:Bind PrevGlyph}" FontSize="14" />
+                                        </Button>
+                                        <Button AutomationProperties.AutomationId="MediaPlayPause"
+                                                AutomationProperties.Name="{x:Bind PlayPauseName, Mode=OneWay}"
+                                                ToolTipService.ToolTip="{x:Bind PlayPauseName, Mode=OneWay}"
+                                                IsEnabled="{x:Bind PlayPauseEnabled, Mode=OneWay}" Click="{x:Bind OnMediaPlayPause}"
+                                                Grid.Column="1" Width="28" Height="24" Padding="0"
+                                                Background="Transparent" BorderThickness="0">
+                                            <FontIcon Glyph="{x:Bind PlayPauseGlyph, Mode=OneWay}" FontSize="14" />
+                                        </Button>
+                                        <Button AutomationProperties.AutomationId="MediaNext"
+                                                AutomationProperties.Name="{x:Bind NextName, Mode=OneWay}"
+                                                ToolTipService.ToolTip="{x:Bind NextName, Mode=OneWay}"
+                                                IsEnabled="{x:Bind NextEnabled, Mode=OneWay}" Click="{x:Bind OnMediaNext}"
+                                                Grid.Column="2" Width="28" Height="24" Padding="0"
+                                                Background="Transparent" BorderThickness="0">
+                                            <FontIcon Glyph="{x:Bind NextGlyph}" FontSize="14" />
+                                        </Button>
+                                        <TextBlock Grid.Column="3" AutomationProperties.AutomationId="MediaTitle"
+                                                   Text="{x:Bind MediaText, Mode=OneWay}" TextTrimming="CharacterEllipsis"
+                                                   MaxLines="1" Opacity="0.8" Margin="8,0,0,0" VerticalAlignment="Center" />
                                     </Grid>
                                 </Grid>
                             </Grid>

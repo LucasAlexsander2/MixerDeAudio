@@ -54,6 +54,13 @@ internal static partial class NativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool CloseHandle(IntPtr handle);
 
+    /// <summary>AUMID do processo (apps da Loja). Devolve 0 se achou; 15703 em processo comum.</summary>
+    [LibraryImport("kernel32.dll", StringMarshalling = StringMarshalling.Utf16)]
+    public static partial int GetApplicationUserModelId(IntPtr process, ref uint length, [Out] char[] buffer);
+
+    [LibraryImport("shell32.dll", StringMarshalling = StringMarshalling.Utf16)]
+    public static partial int SHCreateItemInKnownFolder(in Guid folderId, uint flags, string item, in Guid riid, out IntPtr result);
+
     [LibraryImport("shlwapi.dll", StringMarshalling = StringMarshalling.Utf16)]
     public static partial int SHLoadIndirectString(string source, [Out] char[] outBuffer, uint outBufferSize, IntPtr reserved);
 

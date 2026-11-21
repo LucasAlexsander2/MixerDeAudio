@@ -1,6 +1,6 @@
 # Estado do projeto
 
-**Fase atual:** Fases 1 a 6 concluídas (Fase 6, controle pelo celular na rede de casa: teste do usuário aprovado em 21/11/2026). Próxima: Fase 7 (polimento, otimização e instalador). Detalhes em `docs/fases/fase-1.md` a `fase-6.md`; plano em `docs/PLANO.md`.
+**Fase atual:** Fases 1 a 7 concluídas (Fase 7, controles de música por app: teste do usuário aprovado em 21/11/2026). Próxima: Fase 8 (polimento, otimização e instalador). Detalhes em `docs/fases/fase-1.md` a `fase-6.md`; plano em `docs/PLANO.md`.
 
 ## Comandos
 

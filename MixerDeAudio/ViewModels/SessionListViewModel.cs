@@ -36,6 +36,8 @@ public sealed class SessionListViewModel : ObservableObject, IDisposable
         _tracker.Changed += OnTrackerChanged;
         _devices.Changed += OnDevicesChanged;
         _hub.RouteChanged += OnRouteChanged;
+        _hub.MediaChanged += OnMediaChanged;
+        SyncMedia();
     }
 
     public ObservableCollection<SessionRowViewModel> Rows { get; } = new();
@@ -69,10 +71,54 @@ public sealed class SessionListViewModel : ObservableObject, IDisposable
 
     private void AddRow(GroupSnapshot group, int index)
     {
-        var row = new SessionRowViewModel(group, _hub.SetVolume, _hub.SetMute);
+        var row = new SessionRowViewModel(group, _hub.SetVolume, _hub.SetMute, OnMediaCommand);
         Rows.Insert(Math.Min(index, Rows.Count), row);
         row.LoadIcon();
         LoadRoutes(row);
+        row.ApplyMedia(_hub.Media.FirstOrDefault(m => m.Key == row.Key));
+    }
+
+    // ---- Mídia (Fase 7): botões nas linhas com mídia e linhas só de mídia no fim da lista (D6) ----
+    // As linhas só de mídia ficam sempre depois das linhas de som: os índices do SessionTracker continuam valendo.
+
+    private const string MediaKeyPrefix = "midia:";
+
+    private void OnMediaCommand(string aumid, MediaAction action)
+    {
+        switch (action)
+        {
+            case MediaAction.Previous: _hub.MediaPrevious(aumid); break;
+            case MediaAction.PlayPause: _hub.MediaPlayPause(aumid); break;
+            case MediaAction.Next: _hub.MediaNext(aumid); break;
+        }
+    }
+
+    private void OnMediaChanged() => SyncMedia();
+
+    /// <summary>Aplica a mídia às linhas de som e mantém as linhas só de mídia (as sem linha de som ligada).</summary>
+    private void SyncMedia()
+    {
+        var media = _hub.Media;
+        foreach (var row in Rows)
+            if (!row.IsMediaOnly) row.ApplyMedia(media.FirstOrDefault(m => m.Key == row.Key));
+
+        var only = media.Where(m => m.Key is null).ToList();
+        for (var i = Rows.Count - 1; i >= 0; i--)
+            if (Rows[i].IsMediaOnly && !only.Any(m => MediaKeyPrefix + m.Aumid == Rows[i].Key)) Rows.RemoveAt(i);
+
+        foreach (var m in only)
+        {
+            var key = MediaKeyPrefix + m.Aumid;
+            var row = Rows.FirstOrDefault(r => r.Key == key);
+            if (row is null)
+            {
+                var snapshot = new GroupSnapshot(key, _hub.MediaAppName(m.Aumid), _hub.MediaExePath(m.Aumid), 0f, false, false, 0);
+                row = new SessionRowViewModel(snapshot, _hub.SetVolume, _hub.SetMute, OnMediaCommand, mediaOnly: true);
+                Rows.Add(row);
+                row.LoadIcon();
+            }
+            row.ApplyMedia(m);
+        }
     }
 
     // ---- Saída por app (Fase 4; a escolha mora no hub desde a Fase 6, D3) ----
@@ -166,6 +212,7 @@ public sealed class SessionListViewModel : ObservableObject, IDisposable
         _tracker.Changed -= OnTrackerChanged;
         _devices.Changed -= OnDevicesChanged;
         _hub.RouteChanged -= OnRouteChanged;
+        _hub.MediaChanged -= OnMediaChanged;
         Rows.CollectionChanged -= OnRowsChanged;
     }
 }

@@ -27,7 +27,8 @@ public enum AppCommand
 
 /// <summary>Resultado da leitura da linha de comando.</summary>
 /// <param name="CelularLocal"><c>--celular-local</c> (Fase 6, D12): o servidor do celular escuta só em 127.0.0.1 (uso nos roteiros).</param>
-public readonly record struct CommandLineResult(AppCommand Command, bool NoTrim, bool CelularLocal = false);
+/// <param name="HiddenTest"><c>--teste-oculto</c> (Fase 7): modo dos roteiros de teste; nenhuma janela aparece nas telas, nunca é ativada e o ícone da bandeja não é criado.</param>
+public readonly record struct CommandLineResult(AppCommand Command, bool NoTrim, bool CelularLocal = false, bool HiddenTest = false);
 
 /// <summary>Lê a linha de comando do app. Lógica pura, sem WinUI.</summary>
 public static class CommandLine
@@ -38,6 +39,7 @@ public static class CommandLine
         var command = AppCommand.Default;
         var noTrim = false;
         var celularLocal = false;
+        var hiddenTest = false;
         var unknown = false;
         var found = false;
 
@@ -58,12 +60,13 @@ public static class CommandLine
                 case "--sair": command = AppCommand.Exit; found = true; break;
                 case "--sem-aparar": noTrim = true; break;
                 case "--celular-local": celularLocal = true; break;
+                case "--teste-oculto": hiddenTest = true; break;
                 default: unknown = true; break;
             }
         }
 
         if (!found && unknown) command = AppCommand.None;
-        return new CommandLineResult(command, noTrim, celularLocal);
+        return new CommandLineResult(command, noTrim, celularLocal, hiddenTest);
     }
 
     /// <summary>Lê uma linha inteira (como vem na ativação redirecionada), respeitando aspas.</summary>

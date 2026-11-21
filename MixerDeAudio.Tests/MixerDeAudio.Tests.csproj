@@ -30,6 +30,8 @@
     <Compile Include="..\MixerDeAudio\Audio\DeviceGlyph.cs" Link="Audio\DeviceGlyph.cs" />
     <Compile Include="..\MixerDeAudio\Audio\AppRouting.cs" Link="Audio\AppRouting.cs" />
     <Compile Include="..\MixerDeAudio\Audio\FavoriteFilter.cs" Link="Audio\FavoriteFilter.cs" />
+    <Compile Include="..\MixerDeAudio\Audio\MediaInfo.cs" Link="Audio\MediaInfo.cs" />
+    <Compile Include="..\MixerDeAudio\Audio\MediaMatcher.cs" Link="Audio\MediaMatcher.cs" />
     <Compile Include="..\MixerDeAudio\Services\AppSettings.cs" Link="Services\AppSettings.cs" />
     <Compile Include="..\MixerDeAudio\Services\StartupRules.cs" Link="Services\StartupRules.cs" />
     <Compile Include="..\MixerDeAudio\Remote\RemoteRules.cs" Link="Remote\RemoteRules.cs" />
