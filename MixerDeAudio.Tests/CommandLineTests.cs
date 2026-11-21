@@ -42,6 +42,24 @@ public class CommandLineTests
     public void Desconhecido_NaoFazNada() => Assert.Equal(AppCommand.None, CommandLine.Parse(["--xyz"]).Command);
 
     [Fact]
+    public void CelularLocal_SozinhoLigaAFlagSemComando()
+    {
+        var r = CommandLine.Parse(["--celular-local"]);
+        Assert.True(r.CelularLocal);
+        Assert.Equal(AppCommand.Default, r.Command);
+        Assert.False(CommandLine.Parse(["--abrir"]).CelularLocal);
+    }
+
+    [Fact]
+    public void CelularLocal_JuntoComOutrosArgumentos()
+    {
+        var r = CommandLine.ParseLine("--celular-local --abrir-sem-foco --sem-aparar");
+        Assert.True(r.CelularLocal);
+        Assert.True(r.NoTrim);
+        Assert.Equal(AppCommand.OpenNoFocus, r.Command);
+    }
+
+    [Fact]
     public void SemAparar_JuntoComAbrirSemFoco()
     {
         var r = CommandLine.Parse(["--abrir-sem-foco", "--sem-aparar"]);

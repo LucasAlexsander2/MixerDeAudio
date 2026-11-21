@@ -43,7 +43,7 @@ App de bandeja para o Windows 11. Um clique no ícone abre uma janelinha (~420 p
 | 3 | Volume geral e troca da saída padrão | concluída (teste do usuário aprovado em 19/11/2026) |
 | 4 | Roteamento de saída por app (IAudioPolicyConfig) | concluída (teste do usuário aprovado em 19/11/2026) |
 | 5 | Configurações e dispositivos favoritos | concluída (teste do usuário aprovado em 20/11/2026) |
-| 6 | Controle pelo celular na rede de casa (página servida pelo próprio app, token) | — |
+| 6 | Controle pelo celular na rede de casa (página servida pelo próprio app, token) | concluída (teste do usuário aprovado em 21/11/2026) |
 | 7 | Polimento visual, otimização final (trimming/AOT) e instalador | — |
 
 As pendências que os documentos das fases 1 a 5 marcam para a "Fase 6" passaram para a **Fase 7**, depois da renumeração de 20/11/2026: handles, bytes privados, trimming/AOT, Mica ou Acrylic, altura adaptável e roda do mouse nos sliders.

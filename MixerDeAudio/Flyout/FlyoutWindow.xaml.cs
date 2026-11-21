@@ -27,7 +27,7 @@ public sealed partial class FlyoutWindow : Window
 
     /// <summary>Quantidade de apps (linhas) e de sessões lidas ao abrir, para o log (D23).</summary>
     public int LoadedApps => ViewModel.Rows.Count;
-    public int LoadedSessions => _tracker.SessionCount;
+    public int LoadedSessions => _hub.Sessions.SessionCount;
     public int LoadedDevices => Devices.Buttons.Count;
 
     private readonly Action<string, bool> _onClosed;
@@ -38,44 +38,35 @@ public sealed partial class FlyoutWindow : Window
     private string _reason = "sistema";
     private bool _lostFocus;
     private bool _closedRaised;
-    private readonly SessionTracker _tracker = new();
-    private DeviceMonitor? _deviceMonitor;
-    private AudioSessionMonitor? _monitor;
-    private AppRoutingService? _routing;
+    private readonly AudioHub _hub;
+    private const string HubOwner = "janela";
 
+    /// <param name="hub">Núcleo de áudio compartilhado (Fase 6, D4): a janela é um dos donos.</param>
     /// <param name="onClosed">Chamado uma vez, ao fechar, com o motivo e se foi por perda de foco.</param>
-    public FlyoutWindow(Action<string, bool> onClosed)
+    internal FlyoutWindow(AudioHub hub, Action<string, bool> onClosed)
     {
+        _hub = hub;
         _onClosed = onClosed;
 
-        // Os monitores de áudio existem só com a janela aberta (D1): criados aqui, soltos no Closed.
-        // O DeviceMonitor vem primeiro (dono do enumerador) e recebe o Dispose por último (Fase 3, D1).
-        _deviceMonitor = new DeviceMonitor(DispatcherQueue);
-        _monitor = new AudioSessionMonitor(DispatcherQueue, _tracker);
-        _routing = AppRoutingService.TryCreate(); // Fase 4, D5: uma vez por abertura, na thread da tela
-        ViewModel = new SessionListViewModel(_tracker, _deviceMonitor.Tracker, _routing, _monitor.SetVolume, _monitor.SetMute, Favorites);
-        Master = new MasterVolumeViewModel(_deviceMonitor.SetMasterVolume, _deviceMonitor.SetMasterMute);
+        // Os monitores de áudio existem enquanto houver dono (D1): a janela pede no construtor e solta no Closed.
+        _hub.Acquire(HubOwner);
+        ViewModel = new SessionListViewModel(_hub, Favorites);
+        Master = new MasterVolumeViewModel(_hub.SetMasterVolume, _hub.SetMasterMute);
         InitializeComponent();
 
         // Ligações feitas pelo código: o x:Bind no nível da janela só é aplicado no Loading, que pode vir tarde demais.
-        try { _deviceMonitor.Start(); }
-        catch (Exception ex) { Log.Write($"ERRO COM ao listar saídas: {ex}"); }
-        Devices = new DeviceListViewModel(_deviceMonitor.Tracker, _deviceMonitor.SetDefaultDevice, Favorites);
+        Devices = new DeviceListViewModel(_hub.Devices, _hub.SetDefaultDevice, Favorites);
         DeviceList.ItemsSource = Devices.Buttons;
         MasterHost.ItemsSource = new[] { Master };
         Devices.PropertyChanged += OnDevicesChanged;
         UpdateNoDeviceText();
-        _deviceMonitor.MasterChanged += Master.Apply;
-        _deviceMonitor.DeviceAdded += _monitor.AddDevice;
-        _deviceMonitor.DeviceRemoved += _monitor.RemoveDevice;
-        // O volume geral já foi lido no Start, antes da ligação acima: aplica o valor atual.
-        _deviceMonitor.PublishCurrentMaster();
+        _hub.MasterChanged += Master.Apply;
+        // O volume geral já foi lido pelo hub, antes da ligação acima: aplica o valor atual.
+        Master.Apply(_hub.MasterAvailable, _hub.MasterVolume, _hub.MasterMuted);
 
         SessionList.ItemsSource = ViewModel.Rows;
         ViewModel.PropertyChanged += OnViewModelChanged;
         UpdateEmptyText();
-        try { _monitor.Start(_deviceMonitor.Devices); }
-        catch (Exception ex) { Log.Write($"ERRO COM ao listar sessões: {ex}"); }
 
         ApplyTheme();
         App.Settings.Changed += ApplyTheme;
@@ -147,7 +138,7 @@ public sealed partial class FlyoutWindow : Window
     public void ShowSettings()
     {
         if (_settingsView is not null) return;
-        _settingsView = new SettingsView(App.Settings, _deviceMonitor!.Tracker);
+        _settingsView = new SettingsView(App.Settings, _hub.Devices, App.Remote);
         _settingsView.BackRequested += ShowMain;
         SettingsHost.Children.Add(_settingsView);
         SettingsHost.Visibility = Visibility.Visible;
@@ -235,23 +226,10 @@ public sealed partial class FlyoutWindow : Window
         // D1: soltar o áudio antes de avisar o App (que agenda a devolução de memória).
         ViewModel.PropertyChanged -= OnViewModelChanged;
         Devices.PropertyChanged -= OnDevicesChanged;
-        if (_deviceMonitor is not null)
-        {
-            _deviceMonitor.MasterChanged -= Master.Apply;
-            if (_monitor is not null)
-            {
-                _deviceMonitor.DeviceAdded -= _monitor.AddDevice;
-                _deviceMonitor.DeviceRemoved -= _monitor.RemoveDevice;
-            }
-        }
+        _hub.MasterChanged -= Master.Apply;
         ViewModel.Dispose();
         Devices.Dispose();
-        _routing?.Dispose();
-        _routing = null;
-        _monitor?.Dispose();
-        _monitor = null;
-        _deviceMonitor?.Dispose(); // por último: é o dono do enumerador (D1)
-        _deviceMonitor = null;
+        _hub.Release(HubOwner); // o último dono solta tudo, na mesma ordem de antes (Fase 6, D1)
         if (_closedRaised) return;
         _closedRaised = true;
         _onClosed(_reason, _lostFocus);

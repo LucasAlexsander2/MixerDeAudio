@@ -100,6 +100,78 @@ public class AppSettingsTests
     }
 
     [Fact]
+    public void ArquivoAntigo_SemCamposDoCelular_AindaFunciona()
+    {
+        var s = AppSettings.Parse("{\"Versao\":1,\"Favoritos\":[\"a\"],\"Tema\":\"escuro\"}", out var invalido);
+        Assert.False(invalido);
+        Assert.False(s.CelularLigado);
+        Assert.Null(s.CodigoCelular);
+        Assert.Empty(s.ChavesCelular);
+        Assert.Equal(new[] { "a" }, s.Favoritos);
+    }
+
+    [Fact]
+    public void CamposDoCelular_IdaEVolta()
+    {
+        var uso = new DateTime(2026, 11, 21, 10, 0, 0, DateTimeKind.Utc);
+        var original = new AppSettings
+        {
+            CelularLigado = true,
+            CodigoCelular = "012345",
+            ChavesCelular = new List<PairedPhone> { new() { Hash = "h1", Nome = "Android", UltimoUso = uso } },
+        };
+        var lido = AppSettings.Parse(original.Serialize());
+        Assert.True(lido.CelularLigado);
+        Assert.Equal("012345", lido.CodigoCelular);
+        var p = Assert.Single(lido.ChavesCelular);
+        Assert.Equal("h1", p.Hash);
+        Assert.Equal("Android", p.Nome);
+        Assert.Equal(uso, p.UltimoUso.ToUniversalTime());
+        Assert.Equal(1, lido.Versao);
+    }
+
+    [Theory]
+    [InlineData("12345")]
+    [InlineData("1234567")]
+    [InlineData("12a456")]
+    [InlineData("")]
+    public void CodigoInvalido_Some(string codigo) =>
+        Assert.Null(AppSettings.Parse("{\"Versao\":1,\"CodigoCelular\":\"" + codigo + "\"}").CodigoCelular);
+
+    [Fact]
+    public void ChavesCelular_NoMaximo8_SaemAsMaisAntigas()
+    {
+        var baseTime = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var lista = new List<PairedPhone>();
+        for (var i = 0; i < 10; i++) lista.Add(new PairedPhone { Hash = "h" + i, Nome = "n", UltimoUso = baseTime.AddDays(i) });
+        var s = new AppSettings { ChavesCelular = lista }.Normalized();
+        Assert.Equal(AppSettings.MaxPhones, s.ChavesCelular.Count);
+        Assert.DoesNotContain(s.ChavesCelular, p => p.Hash is "h0" or "h1");
+        Assert.Contains(s.ChavesCelular, p => p.Hash == "h9");
+    }
+
+    [Fact]
+    public void ChavesCelular_SemHashVazioNemRepetido()
+    {
+        var t = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var s = new AppSettings
+        {
+            ChavesCelular = new List<PairedPhone>
+            {
+                new() { Hash = "", Nome = "x", UltimoUso = t },
+                new() { Hash = "a", Nome = "velho", UltimoUso = t },
+                new() { Hash = "a", Nome = "novo", UltimoUso = t.AddDays(1) },
+            },
+        }.Normalized();
+        var p = Assert.Single(s.ChavesCelular);
+        Assert.Equal("novo", p.Nome);
+    }
+
+    [Fact]
+    public void ChavesCelularNulo_ViraListaVazia() =>
+        Assert.Empty(AppSettings.Parse("{\"Versao\":1,\"ChavesCelular\":null}").ChavesCelular);
+
+    [Fact]
     public void Serialize_TemAsChavesEsperadas()
     {
         var json = AppSettings.Default.Serialize();

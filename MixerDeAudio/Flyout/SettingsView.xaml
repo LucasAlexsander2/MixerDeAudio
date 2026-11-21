@@ -74,6 +74,31 @@
                                   OnContent="Ligado" OffContent="Desligado"
                                   IsOn="{x:Bind Model.StartupEnabled, Mode=TwoWay}" />
                 </StackPanel>
+
+                <!-- Controle pelo celular (Fase 6, D17) -->
+                <StackPanel Spacing="4" Visibility="{x:Bind Model.RemoteAvailableVisibility}">
+                    <TextBlock Text="Controle pelo celular" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                    <ToggleSwitch AutomationProperties.AutomationId="RemoteSwitch" AutomationProperties.Name="Controle pelo celular"
+                                  OnContent="Ligado" OffContent="Desligado"
+                                  IsOn="{x:Bind Model.RemoteEnabled, Mode=TwoWay}" />
+                    <StackPanel Spacing="8" Visibility="{x:Bind Model.RemoteVisibility, Mode=OneWay}">
+                        <TextBlock Text="No celular, no mesmo Wi-Fi, leia o QR code ou abra o endereço e digite o código."
+                                   TextWrapping="Wrap" Opacity="0.7" FontSize="12" />
+                        <TextBlock AutomationProperties.AutomationId="RemoteAddress"
+                                   Text="{x:Bind Model.RemoteAddress, Mode=OneWay}" IsTextSelectionEnabled="True" TextWrapping="Wrap" />
+                        <TextBlock AutomationProperties.AutomationId="RemoteCode"
+                                   Text="{x:Bind Model.RemoteCode, Mode=OneWay}" IsTextSelectionEnabled="True"
+                                   FontSize="28" FontWeight="SemiBold" CharacterSpacing="200" />
+                        <Image AutomationProperties.AutomationId="RemoteQr" AutomationProperties.Name="QR code para conectar o celular"
+                               Source="{x:Bind Model.RemoteQr, Mode=OneWay}" Width="160" Height="160" HorizontalAlignment="Left" Stretch="Uniform" />
+                        <TextBlock AutomationProperties.AutomationId="RemoteCount"
+                                   Text="{x:Bind Model.RemoteCount, Mode=OneWay}" />
+                        <Button AutomationProperties.AutomationId="RemoteNewCode" AutomationProperties.Name="Gerar novo código"
+                                Content="Gerar novo código" Click="OnNewCodeClick" />
+                        <TextBlock Text="Gerar um novo código desconecta todos os celulares. A conexão é só pela rede de casa, sem criptografia."
+                                   TextWrapping="Wrap" Opacity="0.7" FontSize="12" />
+                    </StackPanel>
+                </StackPanel>
             </StackPanel>
         </ScrollViewer>
     </Grid>

@@ -32,6 +32,8 @@
     <Compile Include="..\MixerDeAudio\Audio\FavoriteFilter.cs" Link="Audio\FavoriteFilter.cs" />
     <Compile Include="..\MixerDeAudio\Services\AppSettings.cs" Link="Services\AppSettings.cs" />
     <Compile Include="..\MixerDeAudio\Services\StartupRules.cs" Link="Services\StartupRules.cs" />
+    <Compile Include="..\MixerDeAudio\Remote\RemoteRules.cs" Link="Remote\RemoteRules.cs" />
+    <Compile Include="..\MixerDeAudio\Remote\RemoteProtocol.cs" Link="Remote\RemoteProtocol.cs" />
   </ItemGroup>
 
 </Project>

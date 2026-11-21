@@ -15,12 +15,14 @@ public sealed partial class SettingsView : UserControl
     /// <summary>Pedido de voltar à página principal (botão voltar ou Esc).</summary>
     public event Action? BackRequested;
 
-    internal SettingsView(SettingsStore store, DeviceTracker devices)
+    internal SettingsView(SettingsStore store, DeviceTracker devices, Remote.RemoteServer? remote = null)
     {
-        Model = new SettingsViewModel(store, devices);
+        Model = new SettingsViewModel(store, devices, remote);
         InitializeComponent();
         FavoriteList.ItemsSource = Model.Favorites;
     }
+
+    private void OnNewCodeClick(object sender, RoutedEventArgs e) => Model.NewCode();
 
     private void OnBackClick(object sender, RoutedEventArgs e) => BackRequested?.Invoke();
 

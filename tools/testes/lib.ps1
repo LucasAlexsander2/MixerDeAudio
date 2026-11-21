@@ -85,7 +85,7 @@ $script:players = New-Object System.Collections.ArrayList
 function PrepararFerramentas {
   New-Item -ItemType Directory -Force $script:ferr | Out-Null
   Copy-Item "$PSScriptRoot\tocar.cs" "$script:ferr\tocar-b.cs" -Force
-  foreach ($nome in 'tocar', 'tocar-b', 'sessoes') {
+  foreach ($nome in 'tocar', 'tocar-b', 'sessoes', 'celular') {
     $fonte = if ($nome -eq 'tocar-b') { "$script:ferr\tocar-b.cs" } else { "$PSScriptRoot\$nome.cs" }
     $dest = "$script:ferr\$nome-bin"
     $exe = "$dest\$nome.exe"
@@ -423,3 +423,90 @@ function BrilhoMedio([string]$png) {
     [math]::Round($soma / $n, 1)
   } finally { $bmp.Dispose() }
 }
+
+# ---------------- Fase 6: controle pelo celular ----------------
+# Segurança (P3): o servidor do app só é ligado em 127.0.0.1 (--celular-local), então nunca aparece aviso do firewall e nada
+# fica exposto na rede. O celular de teste (celular.cs) só mexe nos tocadores MX-teste e recusa geral e padrao de verdade.
+# Quem chama LigarCelularTeste precisa ter feito BackupConfig antes (o config.json de teste sobrescreve o do usuário).
+$script:celularCodigo = '123456'
+
+# Grava no config.json o interruptor ligado e um código conhecido, inicia o app com --celular-local e devolve a porta lida do log
+# (ou $null se o servidor não ligou em 5 s). O app não pode estar rodando.
+function LigarCelularTeste([string]$codigo = '123456') {
+  $script:celularCodigo = $codigo
+  New-Item -ItemType Directory -Force (Split-Path $script:cfgFile) | Out-Null
+  [IO.File]::WriteAllText($script:cfgFile, "{`"Versao`": 1, `"CelularLigado`": true, `"CodigoCelular`": `"$codigo`"}", (New-Object Text.UTF8Encoding $false))
+  Remove-Item "$env:LOCALAPPDATA\MixerDeAudio\logs" -Recurse -Force -ErrorAction SilentlyContinue
+  StartApp @('--celular-local')
+  $porta = $null
+  WaitFor { $script:celularPorta = CelularPorta; $null -ne $script:celularPorta } 5 | Out-Null
+  $script:celularPorta
+}
+# Porta lida da última linha "celular: servidor ligado em <ip>:<porta>" do log.
+function CelularPorta {
+  $m = @(LogLines | ForEach-Object { [regex]::Match($_, 'celular: servidor ligado em [\d.]+:(\d+)') } | Where-Object { $_.Success })
+  if ($m.Count -eq 0) { return $null }
+  [int]$m[$m.Count - 1].Groups[1].Value
+}
+# Portas de 8750 a 8759 em que o processo do app está escutando (endereço e porta).
+function PortasDoApp {
+  $p = MainProc; if (-not $p) { return @() }
+  @(Get-NetTCPConnection -State Listen -OwningProcess $p.Id -ErrorAction SilentlyContinue | Where-Object { $_.LocalPort -ge 8750 -and $_.LocalPort -le 8759 })
+}
+function CelularExe { "$script:ferr\celular-bin\celular.exe" }
+# Pareia com o código. Devolve Status (HTTP) e Chave (vazia se não veio cookie).
+function CelularParear([int]$porta, [string]$codigo) {
+  $linha = (& (CelularExe) parear $porta $codigo) | Select-Object -First 1
+  $p = "$linha" -split '\|'
+  [pscustomobject]@{ Status = [int]$p[0]; Chave = $(if ($p.Count -gt 1) { $p[1] } else { '' }) }
+}
+# Primeiro estado recebido pelo WebSocket, já como objeto (ou $null).
+function CelularEstado([int]$porta, [string]$chave) {
+  $linha = (& (CelularExe) estado $porta $chave) | Select-Object -First 1
+  if ($linha) { $linha | ConvertFrom-Json } else { $null }
+}
+# Envia um comando (JSON). O celular.exe recusa o que não for volume, mudo ou rota de um MX-teste. Devolve o código de saída (3 = recusado).
+function CelularEnviar([int]$porta, [string]$chave, [string]$json) {
+  $arg = $json.Replace([string][char]34, [string][char]92 + [char]34)  # o PowerShell 5.1 perde as aspas dos argumentos de programas nativos
+  $antes = $ErrorActionPreference; $ErrorActionPreference = 'Continue'  # a recusa vai para o stderr, que no PowerShell 5.1 viraria excecao
+  try { & (CelularExe) enviar $porta $chave $arg 2>$null | Out-Null; $codigo = $LASTEXITCODE } finally { $ErrorActionPreference = $antes }
+  $codigo
+}
+function CelularCiclos([int]$porta, [string]$chave, [int]$n) {
+  & (CelularExe) ciclos $porta $chave $n | Out-Null
+  $LASTEXITCODE
+}
+# GET cru; devolve só o código HTTP. -Chave e -Origem opcionais.
+function CelularGet([int]$porta, [string]$caminho, [string]$chave = '-', [string]$origem = '-') {
+  [int](& (CelularExe) get $porta $caminho $chave $origem | Select-Object -First 1)
+}
+# Mantém um celular conectado em segundo plano. A saída (PRONTO e uma linha "epoch ms<TAB>estado" por mensagem) vai para $arquivo.
+# Para encerrar com educação, crie o arquivo "$arquivo.parar" (CelularSoltar). Devolve o processo.
+function CelularSegurar([int]$porta, [string]$chave, [string]$arquivo, [int]$segundos = 300) {
+  Remove-Item $arquivo, "$arquivo.parar", "$arquivo.err" -Force -ErrorAction SilentlyContinue
+  Start-Process (CelularExe) -ArgumentList @('segurar', "$porta", $chave, "$segundos", "`"$arquivo.parar`"") -RedirectStandardOutput $arquivo -RedirectStandardError "$arquivo.err" -PassThru -WindowStyle Hidden
+}
+function CelularSoltar($proc, [string]$arquivo) {
+  New-Item -ItemType File -Force "$arquivo.parar" | Out-Null
+  if ($proc) { try { $proc.WaitForExit(5000) | Out-Null; if (-not $proc.HasExited) { $proc.Kill() } } catch {} }
+  Remove-Item "$arquivo.parar" -Force -ErrorAction SilentlyContinue
+}
+# Estados lidos do arquivo do CelularSegurar: Epoch (ms) e Estado (objeto).
+function CelularLinhas([string]$arquivo) {
+  if (-not (Test-Path $arquivo)) { return @() }
+  @(Get-Content $arquivo -Encoding utf8 -ErrorAction SilentlyContinue | Where-Object { $_ -match "`t" } | ForEach-Object {
+    $i = $_.IndexOf("`t")
+    try { [pscustomobject]@{ Epoch = [int64]$_.Substring(0, $i); Estado = ($_.Substring($i + 1) | ConvertFrom-Json) } } catch {}
+  })
+}
+function EpochMs { [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() }
+# Espera, no arquivo do celular, um estado depois de $desde (epoch ms) em que $teste devolva verdadeiro. Devolve a latência (ms) ou $null.
+function CelularEsperar([string]$arquivo, [int64]$desde, [scriptblock]$teste, [double]$segundos = 2) {
+  $sw = [Diagnostics.Stopwatch]::StartNew()
+  while ($sw.Elapsed.TotalSeconds -lt $segundos) {
+    foreach ($l in (CelularLinhas $arquivo)) { if ($l.Epoch -ge $desde -and (& $teste $l.Estado)) { return ($l.Epoch - $desde) } }
+    Start-Sleep -Milliseconds 25
+  }
+  $null
+}
+function AppDoEstado($estado, [string]$nome) { if ($estado) { @($estado.apps) | Where-Object { $_.nome -eq $nome } | Select-Object -First 1 } }

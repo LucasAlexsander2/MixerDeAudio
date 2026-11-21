@@ -2,8 +2,11 @@
 # Uso: .\tools\testes\medir.ps1 [-SemAparar] [-ComSom]   (a janela abre e fecha só por linha de comando, sem foco)
 # -ComSom: dois tocadores de teste (silêncio) tocam durante a rodada inteira; a janela passa a ler e soltar as sessões em cada ciclo.
 # -Ciclos N (padrão 20; Fase 3 usa 50): quantidade de ciclos. Se N > 20, mede também após o ciclo N.
+# -ComServidor (Fase 6): liga o servidor do celular em 127.0.0.1 (--celular-local) e mede como as outras rodadas (janela abre e fecha), sem celular conectado.
+# -ComCelular (Fase 6): igual, mas cada ciclo conecta e desconecta o celular de teste (celular.cs) em vez de abrir e fechar a janela.
+#   As duas guardam e devolvem o config.json (BackupConfig/RestoreConfig) e nao combinam com -SemAparar.
 # Cada rodada: 10 s parado -> memória; 30 s parado -> CPU média; N ciclos (abrir sem foco, 1 s, fechar, 3 s) -> memória e handles após os ciclos 5, 20 e N.
-param([switch]$SemAparar, [switch]$ComSom, [int]$Ciclos = 20)
+param([switch]$SemAparar, [switch]$ComSom, [int]$Ciclos = 20, [switch]$ComServidor, [switch]$ComCelular)
 . "$PSScriptRoot\lib.ps1"
 $ErrorActionPreference = 'Stop'
 
@@ -14,11 +17,20 @@ function Mem {
   [pscustomobject]@{ WsPrivMB = [math]::Round($raw.WorkingSetPrivate / 1MB, 1); PrivBytesMB = [math]::Round($p.PrivateMemorySize64 / 1MB, 1); WsMB = [math]::Round($p.WorkingSet64 / 1MB, 1); Handles = $p.HandleCount }
 }
 
+$backupFeito = $false; $porta = $null; $chave = ''
 try {
   StopAll
   StopPlayers
-  $label = $(if ($SemAparar) { 'sem-aparar' } else { 'normal' }) + $(if ($ComSom) { '+com-som' } else { '' })
-  if ($SemAparar) { StartApp @('--sem-aparar') } else { StartApp }
+  $label = $(if ($SemAparar) { 'sem-aparar' } else { 'normal' }) + $(if ($ComSom) { '+com-som' } else { '' }) + $(if ($ComCelular) { '+celular' } elseif ($ComServidor) { '+servidor' } else { '' })
+  if ($ComServidor -or $ComCelular) {
+    if ($SemAparar) { throw '-ComServidor e -ComCelular nao combinam com -SemAparar' }
+    PrepararFerramentas
+    BackupConfig
+    $backupFeito = $true
+    $porta = LigarCelularTeste '123456'
+    if (-not $porta) { throw 'o servidor do celular nao ligou' }
+    if ($ComCelular) { $chave = (CelularParear $porta '123456').Chave; if (-not $chave) { throw 'o pareamento falhou' } }
+  } elseif ($SemAparar) { StartApp @('--sem-aparar') } else { StartApp }
   $p = MainProc
   if ($ComSom) { PrepararFerramentas; StartPlayer 'MX-teste A' | Out-Null; StartPlayer 'MX-teste B' -B | Out-Null }
   Start-Sleep -Seconds 10
@@ -31,10 +43,15 @@ try {
   # Ciclos
   $m5 = $null; $mN = $null
   for ($i = 1; $i -le $Ciclos; $i++) {
-    Cmd "--abrir-sem-foco"
-    Start-Sleep -Seconds 1
-    Cmd '--fechar'
-    Start-Sleep -Seconds 3
+    if ($ComCelular) {
+      CelularCiclos $porta $chave 1 | Out-Null   # conecta, espera o estado e desconecta
+      Start-Sleep -Seconds 4
+    } else {
+      Cmd "--abrir-sem-foco"
+      Start-Sleep -Seconds 1
+      Cmd '--fechar'
+      Start-Sleep -Seconds 3
+    }
     if ($i -eq 5) { $m5 = Mem }
     if ($i -eq 20) { $m20 = Mem }
     if ($i -eq $Ciclos -and $Ciclos -gt 20) { $mN = Mem }
@@ -57,5 +74,6 @@ try {
 } finally {
   StopPlayers
   StopAll
+  if ($backupFeito) { $dif = @(RestoreConfig); "config.json e registro restaurados; diferencas=[$($dif -join '; ')]" }
   "processos restantes: app=$((AppProcs).Count) tocadores=$(PlayersAbertos)"
 }

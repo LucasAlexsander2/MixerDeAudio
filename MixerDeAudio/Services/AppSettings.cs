@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -28,6 +29,7 @@ public sealed record AppSettings
 {
     public const int CurrentVersion = 1;
     public const int MaxFavorites = 3;
+    public const int MaxPhones = 8;
 
     public int Versao { get; init; } = CurrentVersion;
 
@@ -38,6 +40,15 @@ public sealed record AppSettings
     public Dictionary<string, string> NomesFavoritos { get; init; } = new();
 
     public string Tema { get; init; } = AppTheme.Auto;
+
+    /// <summary>Controle pelo celular ligado (Fase 6, D11); desligado por padrão.</summary>
+    public bool CelularLigado { get; init; }
+
+    /// <summary>Código de 6 dígitos do pareamento; gerado na primeira vez que o recurso é ligado.</summary>
+    public string? CodigoCelular { get; init; }
+
+    /// <summary>Celulares pareados: só o SHA-256 da chave fica aqui, nunca a chave. No máximo <see cref="MaxPhones"/>.</summary>
+    public List<PairedPhone> ChavesCelular { get; init; } = new();
 
     public static AppSettings Default => new();
 
@@ -85,8 +96,45 @@ public sealed record AppSettings
             foreach (var id in favs)
                 if (NomesFavoritos.TryGetValue(id, out var n) && !string.IsNullOrWhiteSpace(n)) names[id] = n;
         }
-        return new AppSettings { Versao = CurrentVersion, Favoritos = favs, NomesFavoritos = names, Tema = AppTheme.Normalize(Tema) };
+        return new AppSettings
+        {
+            Versao = CurrentVersion, Favoritos = favs, NomesFavoritos = names, Tema = AppTheme.Normalize(Tema),
+            CelularLigado = CelularLigado, CodigoCelular = NormalizeCode(CodigoCelular), ChavesCelular = NormalizePhones(ChavesCelular),
+        };
     }
+
+    private static string? NormalizeCode(string? code)
+    {
+        var c = code?.Trim();
+        if (c is null || c.Length != 6) return null;
+        foreach (var ch in c)
+            if (ch is < '0' or > '9') return null;
+        return c;
+    }
+
+    /// <summary>Sem hash vazio nem repetido (fica o de uso mais recente); acima de 8, saem os de uso mais antigo.</summary>
+    private static List<PairedPhone> NormalizePhones(List<PairedPhone>? phones)
+    {
+        var valid = new List<PairedPhone>();
+        foreach (var p in phones ?? new List<PairedPhone>())
+        {
+            if (p is null || string.IsNullOrWhiteSpace(p.Hash)) continue;
+            var at = valid.FindIndex(v => string.Equals(v.Hash, p.Hash, StringComparison.Ordinal));
+            if (at < 0) valid.Add(p with { Nome = p.Nome ?? "" });
+            else if (p.UltimoUso > valid[at].UltimoUso) valid[at] = p with { Nome = p.Nome ?? "" };
+        }
+        if (valid.Count <= MaxPhones) return valid;
+        var keep = new HashSet<PairedPhone>(valid.OrderByDescending(p => p.UltimoUso).Take(MaxPhones));
+        return valid.Where(keep.Contains).ToList();
+    }
+}
+
+/// <summary>Um celular pareado (Fase 6, D11): hash da chave, nome tirado do User-Agent e o último uso.</summary>
+public sealed record PairedPhone
+{
+    public string Hash { get; init; } = "";
+    public string Nome { get; init; } = "";
+    public DateTime UltimoUso { get; init; }
 }
 
 [JsonSourceGenerationOptions(WriteIndented = true)]

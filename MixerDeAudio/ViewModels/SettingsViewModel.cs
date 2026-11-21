@@ -2,7 +2,19 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Net;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
+using System.Runtime.InteropServices.WindowsRuntime;
+using System.Threading.Tasks;
+using Microsoft.UI.Dispatching;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
 using MixerDeAudio.Audio;
+using MixerDeAudio.Remote;
+using QRCoder;
+using Windows.Storage.Streams;
 using MixerDeAudio.Services;
 
 namespace MixerDeAudio.ViewModels;
@@ -55,15 +67,28 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
     private readonly SettingsStore _store;
     private readonly DeviceTracker _devices;
     private bool _rebuilding;
+    private readonly RemoteServer? _remote;
+    private readonly DispatcherQueue? _ui;
     private bool _startup;
+    private bool _disposed;
+    private Visibility _remoteVisibility = Visibility.Collapsed;
+    private string _remoteAddress = "";
+    private string _remoteCode = "";
+    private string _remoteCount = "";
+    private ImageSource? _remoteQr;
+    private string? _qrUrl;
 
-    internal SettingsViewModel(SettingsStore store, DeviceTracker devices)
+    internal SettingsViewModel(SettingsStore store, DeviceTracker devices, RemoteServer? remote = null)
     {
         _store = store;
         _devices = devices;
+        _remote = remote;
+        _ui = DispatcherQueue.GetForCurrentThread();
         _startup = StartupRegistration.IsEnabled();
         RebuildFavorites();
         _devices.Changed += OnDevicesChanged;
+        if (_remote is not null) _remote.ConnectionsChanged += OnConnectionsChanged;
+        RefreshRemote();
     }
 
     public ObservableCollection<FavoriteItemViewModel> Favorites { get; } = new();
@@ -146,5 +171,127 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
         }
     }
 
-    public void Dispose() => _devices.Changed -= OnDevicesChanged;
+    // ---- Controle pelo celular (Fase 6, D17 e D18) ----
+
+    /// <summary>A seção só aparece quando o servidor existe (sempre, no app).</summary>
+    public Visibility RemoteAvailableVisibility => _remote is not null ? Visibility.Visible : Visibility.Collapsed;
+
+    public bool RemoteEnabled
+    {
+        get => _store.Current.CelularLigado;
+        set
+        {
+            if (value == _store.Current.CelularLigado) return;
+            // O servidor liga ou desliga na hora pelo evento Changed da configuração (D10)
+            _store.Update(s => s with { CelularLigado = value });
+            Log.Write(value ? "celular: recurso ligado nas configuracoes" : "celular: recurso desligado nas configuracoes");
+            RefreshRemote();
+            OnPropertyChanged();
+        }
+    }
+
+    public Visibility RemoteVisibility { get => _remoteVisibility; private set => SetProperty(ref _remoteVisibility, value); }
+    public string RemoteAddress { get => _remoteAddress; private set => SetProperty(ref _remoteAddress, value); }
+    public string RemoteCode { get => _remoteCode; private set => SetProperty(ref _remoteCode, value); }
+    public string RemoteCount { get => _remoteCount; private set => SetProperty(ref _remoteCount, value); }
+    public ImageSource? RemoteQr { get => _remoteQr; private set => SetProperty(ref _remoteQr, value); }
+
+    /// <summary>"Gerar novo código": troca o código, esquece todos os celulares e desconecta quem estava conectado.</summary>
+    public void NewCode()
+    {
+        _remote?.RegenerateCode();
+        RefreshRemote();
+    }
+
+    private void RefreshRemote()
+    {
+        if (_remote is null) return;
+        var settings = _store.Current;
+        RemoteVisibility = settings.CelularLigado ? Visibility.Visible : Visibility.Collapsed;
+        if (!settings.CelularLigado)
+        {
+            _qrUrl = null;
+            RemoteQr = null;
+            return;
+        }
+        RemoteCode = settings.CodigoCelular ?? "";
+        UpdateCount();
+        if (!_remote.IsRunning || string.IsNullOrEmpty(settings.CodigoCelular))
+        {
+            RemoteAddress = "Servidor não iniciou (sem porta livre de 8750 a 8759)";
+            _qrUrl = null;
+            RemoteQr = null;
+            return;
+        }
+        var ip = LocalAddress();
+        RemoteAddress = RemoteRules.BuildAddress(ip, _remote.Port);
+        // A imagem só é gerada quando a seção é mostrada e o endereço ou o código mudaram (D18)
+        var url = RemoteRules.BuildPairingUrl(ip, _remote.Port, settings.CodigoCelular!);
+        if (url != _qrUrl)
+        {
+            _qrUrl = url;
+            _ = BuildQrAsync(url);
+        }
+    }
+
+    private async Task BuildQrAsync(string url)
+    {
+        try
+        {
+            byte[] png;
+            using (var generator = new QRCodeGenerator())
+            using (var data = generator.CreateQrCode(url, QRCodeGenerator.ECCLevel.M))
+                png = new PngByteQRCode(data).GetGraphic(10);
+            using var stream = new InMemoryRandomAccessStream();
+            await stream.WriteAsync(png.AsBuffer());
+            stream.Seek(0);
+            var bitmap = new BitmapImage();
+            await bitmap.SetSourceAsync(stream);
+            if (!_disposed && url == _qrUrl) RemoteQr = bitmap;
+        }
+        catch (Exception ex)
+        {
+            Log.Write($"ERRO celular: QR code: {ex.Message}");
+        }
+    }
+
+    private void UpdateCount()
+    {
+        var n = _remote?.ConnectionCount ?? 0;
+        RemoteCount = n == 1 ? "1 celular conectado" : $"{n} celulares conectados";
+    }
+
+    // Vem de qualquer thread (rede)
+    private void OnConnectionsChanged() => _ui?.TryEnqueue(() => { if (!_disposed) UpdateCount(); });
+
+    /// <summary>IPv4 da placa que tem gateway padrão (D17); sem nenhuma, o endereço local.</summary>
+    internal static string LocalAddress()
+    {
+        try
+        {
+            foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
+            {
+                if (nic.OperationalStatus != OperationalStatus.Up) continue;
+                if (nic.NetworkInterfaceType is NetworkInterfaceType.Loopback or NetworkInterfaceType.Tunnel) continue;
+                var props = nic.GetIPProperties();
+                var hasGateway = props.GatewayAddresses.Any(g =>
+                    g.Address.AddressFamily == AddressFamily.InterNetwork && !g.Address.Equals(IPAddress.Any));
+                if (!hasGateway) continue;
+                var unicast = props.UnicastAddresses.FirstOrDefault(u => u.Address.AddressFamily == AddressFamily.InterNetwork);
+                if (unicast is not null) return unicast.Address.ToString();
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Write($"ERRO celular: endereco local: {ex.Message}");
+        }
+        return IPAddress.Loopback.ToString();
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        _devices.Changed -= OnDevicesChanged;
+        if (_remote is not null) _remote.ConnectionsChanged -= OnConnectionsChanged;
+    }
 }

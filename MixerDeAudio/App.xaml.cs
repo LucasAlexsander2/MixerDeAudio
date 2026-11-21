@@ -2,8 +2,10 @@ using System;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using MixerDeAudio.Audio;
 using MixerDeAudio.Flyout;
 using MixerDeAudio.Interop;
+using MixerDeAudio.Remote;
 using MixerDeAudio.Services;
 using MixerDeAudio.Tray;
 using Windows.Graphics;
@@ -21,6 +23,8 @@ public partial class App : Application
     private DispatcherQueueTimer? _trimTimer;
     private TrayIconService? _tray;
     private FlyoutWindow? _flyout;
+    private AudioHub _hub = null!;
+    private RemoteServer? _remote;
     private bool _noTrim;
     private bool _exiting;
 
@@ -28,6 +32,9 @@ public partial class App : Application
     public static DispatcherQueue? UiQueue { get; private set; }
 
     public static App? Instance { get; private set; }
+
+    /// <summary>Servidor do celular (Fase 6), para a seção "Controle pelo celular" das Configurações.</summary>
+    internal static RemoteServer? Remote => Instance?._remote;
 
     /// <summary>Configuração do usuário em memória (Fase 5, D2); lida uma vez, na partida.</summary>
     public static SettingsStore Settings { get; private set; } = new();
@@ -58,11 +65,38 @@ public partial class App : Application
         _trimTimer.IsRepeating = false;
         _trimTimer.Tick += OnTrimTick;
 
+        // Núcleo de áudio compartilhado (Fase 6, D1): o modo de eficiência fica desligado enquanto houver dono (janela ou celular)
+        _hub = new AudioHub(DispatcherQueue.GetForCurrentThread());
+        _hub.BecameActive += OnHubActive;
+        _hub.BecameIdle += OnHubIdle;
+
         // Primeira cópia: sem argumento só cria o ícone; com argumento, executa o comando (D8).
         var commandLine = CommandLine.Parse(Program.StartupArguments);
         _noTrim = commandLine.NoTrim;
+
+        // Servidor do celular (Fase 6, D10 e D12): desligado por padrão; liga na partida e quando o interruptor muda
+        _remote = new RemoteServer(_hub, Settings, UiQueue!, commandLine.CelularLocal);
+        Settings.Changed += OnSettingsChanged;
+        _remote.Apply();
         if (commandLine.Command is not (AppCommand.Default or AppCommand.None)) Execute(commandLine);
-        if (_flyout is null) ScheduleTrim();
+        if (!_hub.IsActive) ScheduleTrim();
+    }
+
+    private void OnSettingsChanged() => _remote?.Apply();
+
+    /// <summary>O primeiro dono chegou: cancela o trim pendente e desliga o modo de eficiência (D1).</summary>
+    private void OnHubActive()
+    {
+        _trimTimer?.Stop();
+        TrayIconService.SetEfficiencyMode(false);
+    }
+
+    /// <summary>O último dono saiu e os monitores foram soltos: modo de eficiência de volta e trim em 2 s (D1, Fase 1 D17).</summary>
+    private void OnHubIdle()
+    {
+        if (_exiting) return;
+        TrayIconService.SetEfficiencyMode(true);
+        ScheduleTrim();
     }
 
     /// <summary>Executa um comando da linha de comando, da primeira cópia ou da redirecionada (D8). Só na thread da tela.</summary>
@@ -117,12 +151,9 @@ public partial class App : Application
             }
             if (checkGate && !_gate.CanOpen()) return;
 
-            _trimTimer?.Stop();
-            TrayIconService.SetEfficiencyMode(false);
-
             var timer = System.Diagnostics.Stopwatch.StartNew();
             var rect = ComputePlacement(atCursor);
-            _flyout = new FlyoutWindow(OnFlyoutClosed);
+            _flyout = new FlyoutWindow(_hub, OnFlyoutClosed);
             if (settings) _flyout.ShowSettings();
             timer.Stop();
             Log.Write($"sessoes carregadas (apps={_flyout.LoadedApps}, sessoes={_flyout.LoadedSessions}, saidas={_flyout.LoadedDevices}, {timer.ElapsedMilliseconds} ms)");
@@ -159,9 +190,7 @@ public partial class App : Application
         _flyout = null;
         _gate.NotifyClosed(lostFocus);
         Log.Write($"janela fechada ({reason})");
-        if (_exiting) return;
-        TrayIconService.SetEfficiencyMode(true);
-        ScheduleTrim();
+        // O modo de eficiência e o trim voltam quando o hub fica sem dono (OnHubIdle), não só com a janela fechada.
     }
 
     /// <summary>2 s depois, com a janela ainda fechada, devolve a memória ao Windows (D17).</summary>
@@ -173,7 +202,7 @@ public partial class App : Application
 
     private void OnTrimTick(DispatcherQueueTimer sender, object args)
     {
-        if (_flyout is null && !_noTrim) MemoryTrimmer.Trim();
+        if (!_hub.IsActive && !_noTrim) MemoryTrimmer.Trim();
     }
 
     /// <summary>"Sair" (D9): fecha a janela, remove o ícone da bandeja e encerra.</summary>
@@ -185,7 +214,9 @@ public partial class App : Application
             _exiting = true;
             Log.Write("saindo");
             _trimTimer?.Stop();
+            _remote?.Dispose();
             _flyout?.RequestClose("saindo");
+            _hub.ReleaseAll();
             _tray?.Dispose();
             _tray = null;
             Application.Current.Exit();

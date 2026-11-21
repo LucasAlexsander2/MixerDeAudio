@@ -40,9 +40,6 @@ public sealed class SessionRowViewModel : ObservableObject
     /// <summary>Botões de saída do app (Fase 4, D10).</summary>
     public ObservableCollection<RouteButtonViewModel> Routes { get; } = new();
 
-    /// <summary>Id do <c>MMDevice</c> que o app escolheu; nulo se segue a saída padrão (D6).</summary>
-    public string? PreferredId { get; set; }
-
     /// <summary>Se a escolha já foi lida do Windows.</summary>
     public bool RoutesLoaded { get; set; }
 

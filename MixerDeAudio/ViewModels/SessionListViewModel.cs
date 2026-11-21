@@ -16,25 +16,26 @@ namespace MixerDeAudio.ViewModels;
 /// </summary>
 public sealed class SessionListViewModel : ObservableObject, IDisposable
 {
+    private readonly AudioHub _hub;
     private readonly SessionTracker _tracker;
     private readonly DeviceTracker _devices;
-    private readonly AppRoutingService? _routing;
-    private readonly Action<string, float> _setVolume;
-    private readonly Action<string, bool> _setMute;
     private readonly Func<IReadOnlyCollection<string>> _favorites;
 
-    internal SessionListViewModel(SessionTracker tracker, DeviceTracker devices, AppRoutingService? routing,
-        Action<string, float> setVolume, Action<string, bool> setMute, Func<IReadOnlyCollection<string>> favorites)
+    /// <summary>
+    /// Fase 6, D3 e D4: as linhas nascem do hub, que pode já estar ativo (celular conectado): as que já existem entram
+    /// primeiro, e as novas chegam pelos avisos do <see cref="SessionTracker"/>. Os comandos apontam para o hub.
+    /// </summary>
+    internal SessionListViewModel(AudioHub hub, Func<IReadOnlyCollection<string>> favorites)
     {
         _favorites = favorites;
-        _tracker = tracker;
-        _devices = devices;
-        _routing = routing;
-        _setVolume = setVolume;
-        _setMute = setMute;
+        _hub = hub;
+        _tracker = hub.Sessions;
+        _devices = hub.Devices;
         Rows.CollectionChanged += OnRowsChanged;
+        foreach (var group in _tracker.Groups) AddRow(group, Rows.Count);
         _tracker.Changed += OnTrackerChanged;
         _devices.Changed += OnDevicesChanged;
+        _hub.RouteChanged += OnRouteChanged;
     }
 
     public ObservableCollection<SessionRowViewModel> Rows { get; } = new();
@@ -48,10 +49,7 @@ public sealed class SessionListViewModel : ObservableObject, IDisposable
         switch (change.Kind)
         {
             case GroupChangeKind.Added:
-                var row = new SessionRowViewModel(change.Group, _setVolume, _setMute);
-                Rows.Insert(Math.Min(change.Index, Rows.Count), row);
-                row.LoadIcon();
-                LoadRoutes(row);
+                AddRow(change.Group, change.Index);
                 break;
             case GroupChangeKind.Changed:
                 if (change.OldIndex < 0 || change.OldIndex >= Rows.Count) return;
@@ -69,22 +67,34 @@ public sealed class SessionListViewModel : ObservableObject, IDisposable
         }
     }
 
-    // ---- Saída por app (Fase 4) ----
+    private void AddRow(GroupSnapshot group, int index)
+    {
+        var row = new SessionRowViewModel(group, _hub.SetVolume, _hub.SetMute);
+        Rows.Insert(Math.Min(index, Rows.Count), row);
+        row.LoadIcon();
+        LoadRoutes(row);
+    }
 
-    /// <summary>Lê a escolha do app (D6) e monta os botões, se couber (D7). Sem pid, tenta de novo quando a linha mudar.</summary>
+    // ---- Saída por app (Fase 4; a escolha mora no hub desde a Fase 6, D3) ----
+
+    /// <summary>Lê a escolha do app pelo hub (D6) e monta os botões, se couber (D7). Sem pid, tenta de novo quando a linha mudar.</summary>
     private void LoadRoutes(SessionRowViewModel row)
     {
-        if (_routing is null || row.IsSystem) return;
-        var pids = _tracker.ProcessIds(row.Key);
-        if (pids.Count == 0) return;
+        if (_hub.Routing is null || row.IsSystem) return;
+        if (!_hub.TryLoadRoute(row.Key, row.IsSystem)) return;
         row.RoutesLoaded = true;
-        try { row.PreferredId = _routing.GetPreferred(pids); }
-        catch (Exception ex)
-        {
-            Log.Write($"ERRO ao ler a saida de {row.Name}: {ex.Message}");
-            row.PreferredId = null;
-        }
         RebuildRoutes(row);
+    }
+
+    /// <summary>A escolha de um app mudou (por esta janela ou pelo celular): move o destaque (ou refaz a linha).</summary>
+    private void OnRouteChanged(string key)
+    {
+        foreach (var row in Rows)
+        {
+            if (row.Key != key) continue;
+            if (row.RoutesLoaded) UpdateHighlight(row);
+            return;
+        }
     }
 
     /// <summary>Saídas que aparecem na linha (D5 e D6): as favoritas e, no fim, a efetiva do app se não for favorita.</summary>
@@ -95,7 +105,7 @@ public sealed class SessionListViewModel : ObservableObject, IDisposable
     {
         row.Routes.Clear();
         var visible = VisibleFor(row);
-        var show = AppRouting.ShowButtons(row.IsSystem, row.RoutesLoaded, visible.Count, _routing is not null);
+        var show = AppRouting.ShowButtons(row.IsSystem, row.RoutesLoaded, visible.Count, _hub.Routing is not null);
         if (show)
         {
             var effective = EffectiveOf(row);
@@ -116,7 +126,7 @@ public sealed class SessionListViewModel : ObservableObject, IDisposable
     }
 
     private string? EffectiveOf(SessionRowViewModel row) =>
-        AppRouting.Effective(row.PreferredId, _devices.DefaultId, _devices.Devices.Select(d => d.Id));
+        AppRouting.Effective(_hub.PreferredOf(row.Key), _devices.DefaultId, _devices.Devices.Select(d => d.Id));
 
     /// <summary>
     /// Move o destaque; se o conjunto de botões visíveis mudou (a efetiva entrou ou saiu do "extra" do P2), refaz a linha.
@@ -148,41 +158,14 @@ public sealed class SessionListViewModel : ObservableObject, IDisposable
         }
     }
 
-    private string ShortNameOf(string id) =>
-        _devices.Devices.FirstOrDefault(d => string.Equals(d.Id, id, StringComparison.OrdinalIgnoreCase))?.ShortName ?? id;
-
-    /// <summary>Clique num botão (D3, D6, D12): grava ou apaga a escolha e relê para confirmar.</summary>
-    private void OnRouteClick(SessionRowViewModel row, string clickedId)
-    {
-        if (_routing is null) return;
-        var action = AppRouting.OnClick(clickedId, row.PreferredId, _devices.DefaultId);
-        if (action.Kind == RouteActionKind.None) return;
-        try
-        {
-            var pids = _tracker.ProcessIds(row.Key);
-            if (action.Kind == RouteActionKind.Clear)
-            {
-                _routing.SetPreferred(pids, null);
-                Log.Write($"saida de {row.Name} volta a seguir a padrao");
-            }
-            else
-            {
-                _routing.SetPreferred(pids, action.DeviceId);
-                Log.Write($"saida de {row.Name} trocada para {ShortNameOf(clickedId)}");
-            }
-            row.PreferredId = _routing.GetPreferred(pids);
-        }
-        catch (Exception ex)
-        {
-            Log.Write($"ERRO ao trocar a saida de {row.Name}: {ex.Message}");
-        }
-        UpdateHighlight(row);
-    }
+    /// <summary>Clique num botão (D3, D6, D12): o hub grava ou apaga a escolha, relê e avisa (o destaque se move em <see cref="OnRouteChanged"/>).</summary>
+    private void OnRouteClick(SessionRowViewModel row, string clickedId) => _hub.ClickRoute(row.Key, clickedId);
 
     public void Dispose()
     {
         _tracker.Changed -= OnTrackerChanged;
         _devices.Changed -= OnDevicesChanged;
+        _hub.RouteChanged -= OnRouteChanged;
         Rows.CollectionChanged -= OnRowsChanged;
     }
 }
