@@ -41,10 +41,12 @@ function AppProcs { @(Get-Process MixerDeAudio -ErrorAction SilentlyContinue) }
 # (a janela abre abaixo e a esquerda de todos os monitores, sem ativacao, e a posicao calculada vai para o log).
 # Se o app do usuario (publicado\MixerDeAudio.exe) estava rodando quando o script comecou, ele e reaberto normalmente, sem
 # argumentos, quando o roteiro termina (ReabrirAppDoUsuario, chamada no fim de cada roteiro de fora): o usuario nao fica sem o mixer.
-$script:usuarioRodava = @(Get-Process MixerDeAudio -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $script:exe }).Count -gt 0
+# Fase 8 (D20): guarda o caminho do MixerDeAudio.exe que estava rodando, seja qual for a pasta (publicado\ ou o instalado), e reabre esse.
+$script:exeUsuario = @(Get-Process MixerDeAudio -ErrorAction SilentlyContinue | ForEach-Object { $_.Path } | Where-Object { $_ } | Select-Object -First 1)[0]
+$script:usuarioRodava = [bool]$script:exeUsuario
 # Chamar no fim do roteiro de fora (depois de StopAll e das conferencias de processos restantes).
 function ReabrirAppDoUsuario {
-  if ($script:usuarioRodava -and @(Get-Process MixerDeAudio -ErrorAction SilentlyContinue).Count -eq 0) { Start-Process $script:exe | Out-Null; 'app do usuario reaberto (sem argumentos)' }
+  if ($script:usuarioRodava -and @(Get-Process MixerDeAudio -ErrorAction SilentlyContinue).Count -eq 0 -and (Test-Path $script:exeUsuario)) { Start-Process $script:exeUsuario | Out-Null; 'app do usuario reaberto (sem argumentos)' }
 }
 # Abre a primeira cópia (sempre com --teste-oculto) e espera o processo existir.
 function StartApp([string[]]$argList = @()) {
@@ -61,13 +63,14 @@ function WaitFor([scriptblock]$cond, [double]$seconds) {
   while ($sw.Elapsed.TotalSeconds -lt $seconds) { if (& $cond) { return $true }; Start-Sleep -Milliseconds 50 }
   [bool](& $cond)
 }
-# Encerra o app sempre: primeiro --sair, depois Stop-Process se sobrar algo.
+# Encerra o app sempre: --sair pelo próprio caminho de cada cópia aberta (a instância única vale por caminho do .exe:
+# o --sair de publicado\ não fecha a cópia instalada). Stop-Process só sobra para cópias de publicado\, nunca para a
+# cópia instalada do usuário (matar à força pode perder o config.json).
 function StopAll {
-  if ((AppProcs).Count -gt 0) {
-    try { Start-Process $script:exe -ArgumentList '--sair' -Wait | Out-Null } catch {}
-    WaitFor { (AppProcs).Count -eq 0 } 5 | Out-Null
-  }
-  AppProcs | Stop-Process -Force -ErrorAction SilentlyContinue
+  $caminhos = @(AppProcs | ForEach-Object { $_.Path } | Where-Object { $_ } | Select-Object -Unique)
+  foreach ($c in $caminhos) { try { Start-Process $c -ArgumentList '--sair' -Wait | Out-Null } catch {} }
+  if ($caminhos.Count -gt 0) { WaitFor { (AppProcs).Count -eq 0 } 5 | Out-Null }
+  AppProcs | Where-Object { $_.Path -eq $script:exe } | Stop-Process -Force -ErrorAction SilentlyContinue
 }
 function LogLines { if (Test-Path $script:log) { Get-Content $script:log -Encoding utf8 } else { @() } }
 function LogCount([string]$pat) { @(LogLines | Where-Object { $_ -match $pat }).Count }

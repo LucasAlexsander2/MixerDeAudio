@@ -39,8 +39,10 @@ button.on{background:var(--accent);color:var(--accent-fg)}
 .sl{display:flex;align-items:center;gap:12px;margin-top:4px}
 input[type=range]{flex:1;min-width:0;height:44px;margin:0;accent-color:var(--accent);touch-action:pan-y}
 .val{width:3ch;text-align:right;font-variant-numeric:tabular-nums;color:var(--dim)}
-.routes{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
-.routes button{font-size:14px;display:flex;align-items:center;gap:6px;padding:0 10px}
+.routes{display:flex;flex-wrap:nowrap;gap:6px;margin-top:6px}
+.routes button{flex:1 1 0;min-width:0;font-size:14px;display:flex;align-items:center;justify-content:center;gap:6px;padding:0 10px}
+.routes .rg{flex:none}
+.routes .rn{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .card.off{opacity:.55}
 #empty{color:var(--dim);text-align:center;margin:24px 0}
 .media{display:flex;align-items:center;gap:6px;margin-top:6px}
@@ -195,7 +197,7 @@ function render(s){
       r.sig=rs;r.routes.textContent='';r.routes.hidden=!a.rotas.length;
       a.rotas.forEach(function(d){
         var b=el('button',d.ativa?'on':'');b.setAttribute('aria-label','Enviar '+a.nome+' para '+d.nome);b.setAttribute('aria-pressed',d.ativa);
-        b.appendChild(el('span','',G[d.glifo]||'🔊'));b.appendChild(el('span','',d.nome));
+        b.appendChild(el('span','rg',G[d.glifo]||'🔊'));b.appendChild(el('span','rn',d.nome));
         b.onclick=function(){send({t:'rota',app:a.chave,id:d.id});};
         r.routes.appendChild(b);
       });

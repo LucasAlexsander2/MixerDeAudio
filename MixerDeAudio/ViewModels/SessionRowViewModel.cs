@@ -1,6 +1,7 @@
 using System;
 using System.Collections.ObjectModel;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using MixerDeAudio.Audio;
 
@@ -26,8 +27,9 @@ public sealed class SessionRowViewModel : ObservableObject
     /// <param name="mediaCommand">Comando de mídia pelo AUMID (Fase 7, D5); nulo sem controle de mídia.</param>
     /// <param name="mediaOnly">Linha só de mídia (D6): sem volume, mudo e saída.</param>
     public SessionRowViewModel(GroupSnapshot snapshot, Action<string, float> setVolume, Action<string, bool> setMute,
-        Action<string, MediaAction>? mediaCommand = null, bool mediaOnly = false)
+        Action<string, MediaAction>? mediaCommand = null, bool mediaOnly = false, string? iconKey = null)
     {
+        IconKey = iconKey ?? snapshot.ExePath;
         _setVolume = setVolume;
         _setMute = setMute;
         _mediaCommand = mediaCommand;
@@ -43,6 +45,9 @@ public sealed class SessionRowViewModel : ObservableObject
 
     public string Key { get; }
     public string? ExePath { get; }
+
+    /// <summary>Fonte do ícone (Fase 8, D5): "aumid:&lt;id&gt;" nos apps da Loja, senão o caminho do .exe.</summary>
+    public string? IconKey { get; }
     public bool IsSystem { get; }
 
     /// <summary>Botões de saída do app (Fase 4, D10).</summary>
@@ -117,6 +122,14 @@ public sealed class SessionRowViewModel : ObservableObject
         if (_media is not null) _mediaCommand?.Invoke(_media.Aumid, action);
     }
 
+    /// <summary>Roda do mouse sobre o slider (Fase 8, D3): ±2 por dente, pelo mesmo caminho do arrastar.</summary>
+    public void OnWheel(object sender, PointerRoutedEventArgs e)
+    {
+        var delta = e.GetCurrentPoint((UIElement)sender).Properties.MouseWheelDelta;
+        Volume = VolumeStep.Apply(_volume, delta);
+        e.Handled = true; // a lista não rola junto
+    }
+
     /// <summary>Volume de 0 a 100. Mudar pelo slider grava no Windows; mudar pelo sistema não.</summary>
     public double Volume
     {
@@ -182,7 +195,7 @@ public sealed class SessionRowViewModel : ObservableObject
     {
         try
         {
-            var png = await AppIconCache.GetPngAsync(ExePath).ConfigureAwait(false);
+            var png = await AppIconCache.GetPngAsync(IconKey).ConfigureAwait(false);
             if (png.Length == 0) return;
             var queue = App.UiQueue;
             queue?.TryEnqueue(async () =>

@@ -54,7 +54,7 @@ internal sealed class AumidResolver
     private static readonly ShellPropertyKey TargetParsingPath = new() { FormatId = new Guid("b9b4b3fc-2b51-4a42-b5d8-324146afcf25"), PropertyId = 2 };
     private static readonly ShellPropertyKey ItemNameDisplay = new() { FormatId = new Guid("b725f130-47ef-101a-a5f1-02608c9eebac"), PropertyId = 10 };
 
-    private static readonly StrategyBasedComWrappers Wrappers = new(); // um só para o processo
+    internal static readonly StrategyBasedComWrappers Wrappers = new(); // um só para o processo (também usado pelo AppIconCache)
 
     private readonly Dictionary<string, ShellData> _shell = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<int, string?> _byPid = new();

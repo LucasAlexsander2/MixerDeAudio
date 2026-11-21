@@ -1,8 +1,8 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using Microsoft.UI.Dispatching;
 using MixerDeAudio.Services;
-using NAudio.CoreAudioApi;
+using MixerDeAudio.Audio.CoreAudio;
 
 namespace MixerDeAudio.Audio;
 
@@ -18,10 +18,10 @@ internal sealed class DeviceMonitor : IDisposable
 
     private readonly DispatcherQueue _queue;
     private readonly VolumeEchoFilter _echo = new();
-    private readonly Dictionary<string, MMDevice> _devices = new(StringComparer.Ordinal);
-    private MMDeviceNotificationClient? _client;
-    private MMDeviceEnumerator? _enumerator;
-    private AudioEndpointVolume? _master;
+    private readonly Dictionary<string, CoreDevice> _devices = new(StringComparer.Ordinal);
+    private DeviceNotificationSink? _client;
+    private CoreEnumerator? _enumerator;
+    private CoreEndpointVolume? _master;
     private string? _masterId;
     private bool _masterDirty = true; // há mudança no volume geral que a tela ainda não recebeu
     private bool _resyncPending;
@@ -35,7 +35,7 @@ internal sealed class DeviceMonitor : IDisposable
     public DeviceTracker Tracker { get; } = new();
 
     /// <summary>Uma saída entrou depois do <see cref="Start"/>. Thread da tela.</summary>
-    public event Action<MMDevice>? DeviceAdded;
+    public event Action<CoreDevice>? DeviceAdded;
 
     /// <summary>Uma saída saiu da lista; recebe o id. Disparado antes do Dispose do objeto da saída. Thread da tela.</summary>
     public event Action<string>? DeviceRemoved;
@@ -47,47 +47,41 @@ internal sealed class DeviceMonitor : IDisposable
     public void PublishCurrentMaster() => PublishMaster();
 
     /// <summary>Saídas ativas, para o monitor de sessões ler ao abrir.</summary>
-    public IReadOnlyCollection<MMDevice> Devices => _devices.Values;
+    public IReadOnlyCollection<CoreDevice> Devices => _devices.Values;
 
     /// <summary>Lê as saídas ativas e a padrão e se inscreve nos eventos. Na thread da tela.</summary>
     public void Start()
     {
-        _enumerator = new MMDeviceEnumerator();
+        _enumerator = new CoreEnumerator();
         Resync(raiseAdded: false);
         try
         {
-            if (_enumerator.TryGetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia, out var def))
-            {
-                using (def) Tracker.SetDefault(def.ID);
-            }
+            var defaultId = _enumerator.GetDefaultRenderId();
+            if (defaultId is not null) Tracker.SetDefault(defaultId);
         }
         catch (Exception ex)
         {
             Log.Write($"ERRO COM ao ler a saída padrão: {ex.Message}");
         }
         RefreshMaster();
-        _client = _enumerator.CreateNotificationClient(false);
+        _client = new DeviceNotificationSink();
         _client.DefaultDeviceChanged += OnDefaultDeviceChanged;
-        _client.DeviceAdded += OnDeviceAdded;
-        _client.DeviceRemoved += OnDeviceRemoved;
-        _client.DeviceStateChanged += OnDeviceStateChanged;
+        _client.DeviceAdded += PostResync;
+        _client.DeviceRemoved += PostResync;
+        _client.DeviceStateChanged += PostResync;
+        _enumerator.Register(_client);
     }
 
     // ---- Eventos do Windows (threads de fundo): só copiam e enfileiram (D2) ----
 
-    // Desvio da análise: o IMMNotificationClient é interno no NAudio 3.3.0; usa-se o MMDeviceNotificationClient
-    // (CreateNotificationClient(false): eventos na thread de áudio do Windows, sem SynchronizationContext).
-    private void OnDefaultDeviceChanged(object? sender, DefaultDeviceChangedEventArgs e)
+    // Os avisos chegam na thread de áudio do Windows (Fase 8, D8: interface própria no lugar do NAudio).
+    private void OnDefaultDeviceChanged(int flow, int role, string? deviceId)
     {
         // D3: só Render e o papel Multimedia, para não tratar o mesmo evento três vezes.
-        if (e.Flow != DataFlow.Render || e.Role != Role.Multimedia) return;
-        var id = e.DeviceId;
-        Post(() => HandleDefault(id));
+        if (flow != CoreAudioCom.Render || role != CoreAudioCom.RoleMultimedia) return;
+        Post(() => HandleDefault(deviceId));
     }
 
-    private void OnDeviceAdded(object? sender, DeviceNotificationEventArgs e) => PostResync();
-    private void OnDeviceRemoved(object? sender, DeviceNotificationEventArgs e) => PostResync();
-    private void OnDeviceStateChanged(object? sender, DeviceStateChangedEventArgs e) => PostResync();
     // D3: OnPropertyValueChanged dispara muitas vezes e é ignorado (sem inscrição).
 
     /// <summary>Várias notificações seguidas (ligar um fone gera várias) viram uma releitura só.</summary>
@@ -132,16 +126,16 @@ internal sealed class DeviceMonitor : IDisposable
     {
         if (_enumerator is null) return;
         var seen = new HashSet<string>(StringComparer.Ordinal);
-        var fresh = new List<MMDevice>();
-        using (var collection = _enumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active))
+        var fresh = new List<CoreDevice>();
+        using (var collection = _enumerator.EnumerateActiveRender())
         {
             for (var i = 0; i < collection.Count; i++)
             {
                 try
                 {
                     var device = collection[i];
-                    var id = device.ID;
-                    if (_devices.ContainsKey(id) || !seen.Add(id)) { seen.Add(id); SafeDispose(device); continue; }
+                    var id = device.Id;
+                    if (_devices.ContainsKey(id) || !seen.Add(id)) { seen.Add(id); ReleaseDuplicate(device); continue; }
                     fresh.Add(device);
                 }
                 catch (Exception ex)
@@ -164,7 +158,7 @@ internal sealed class DeviceMonitor : IDisposable
         // Saídas novas.
         foreach (var device in fresh)
         {
-            _devices[device.ID] = device;
+            _devices[device.Id] = device;
             if (raiseAdded) DeviceAdded?.Invoke(device);
         }
 
@@ -180,12 +174,7 @@ internal sealed class DeviceMonitor : IDisposable
             var form = 0;
             try
             {
-                var props = device.Properties;
-                desc = ReadString(props, PropertyKeys.PKEY_Device_DeviceDesc);
-                full = ReadString(props, PropertyKeys.PKEY_Device_FriendlyName);
-                if (props.Contains(PropertyKeys.PKEY_AudioEndpoint_FormFactor)
-                    && props[PropertyKeys.PKEY_AudioEndpoint_FormFactor].Value is { } v)
-                    form = Convert.ToInt32(v);
+                (desc, full, form) = device.ReadProperties();
             }
             catch (Exception ex)
             {
@@ -196,8 +185,15 @@ internal sealed class DeviceMonitor : IDisposable
         return list;
     }
 
-    private static string? ReadString(PropertyStore props, PropertyKey key) =>
-        props.Contains(key) ? props[key].Value as string : null;
+    /// <summary>
+    /// Solta uma leitura repetida da mesma saída. Se o Windows devolveu o mesmo objeto que já temos (o COM reconhece
+    /// pela identidade), soltar mataria o objeto em uso: nesse caso não se solta nada.
+    /// </summary>
+    private void ReleaseDuplicate(CoreDevice device)
+    {
+        if (_devices.TryGetValue(device.Id, out var known) && ReferenceEquals(known, device)) return;
+        SafeDispose(device);
+    }
 
     // ---- Volume geral (D11 e D12) ----
 
@@ -211,9 +207,9 @@ internal sealed class DeviceMonitor : IDisposable
         {
             try
             {
-                var volume = device.AudioEndpointVolume;
-                volume.OnVolumeNotification += OnMasterNotification;
+                var volume = device.OpenEndpointVolume();
                 _master = volume;
+                volume.Subscribe(OnMasterNotification);
                 _masterId = activeId;
             }
             catch (Exception ex)
@@ -230,8 +226,9 @@ internal sealed class DeviceMonitor : IDisposable
     {
         if (_master is not null)
         {
-            try { _master.OnVolumeNotification -= OnMasterNotification; }
+            try { _master.Unsubscribe(); }
             catch (Exception ex) { Log.Write($"ERRO COM ao cancelar o volume geral: {ex.Message}"); }
+            SafeDispose(_master);
         }
         _master = null;
         _masterId = null;
@@ -242,15 +239,13 @@ internal sealed class DeviceMonitor : IDisposable
     {
         _masterDirty = false;
         if (_master is null) { MasterChanged?.Invoke(false, 0f, false); return; }
-        try { MasterChanged?.Invoke(true, _master.MasterVolumeLevelScalar, _master.Mute); }
+        try { MasterChanged?.Invoke(true, _master.VolumeScalar, _master.Mute); }
         catch (Exception ex) { Log.Write($"ERRO COM ao ler o volume geral: {ex.Message}"); }
     }
 
     // Thread de fundo: só copia e enfileira (D2).
-    private void OnMasterNotification(AudioVolumeNotificationData data)
+    private void OnMasterNotification(float volume, bool muted)
     {
-        var volume = data.MasterVolume;
-        var muted = data.Muted;
         var id = _masterId;
         Post(() =>
         {
@@ -266,7 +261,7 @@ internal sealed class DeviceMonitor : IDisposable
         if (_master is null) return;
         volume = Math.Clamp(volume, 0f, 1f);
         _echo.Register(MasterEchoKey, volume);
-        try { _master.MasterVolumeLevelScalar = volume; }
+        try { _master.VolumeScalar = volume; }
         catch (Exception ex) { Log.Write($"ERRO COM ao gravar o volume geral: {ex.Message}"); }
     }
 
@@ -316,11 +311,8 @@ internal sealed class DeviceMonitor : IDisposable
         {
             if (_client is not null)
             {
-                _client.DefaultDeviceChanged -= OnDefaultDeviceChanged;
-                _client.DeviceAdded -= OnDeviceAdded;
-                _client.DeviceRemoved -= OnDeviceRemoved;
-                _client.DeviceStateChanged -= OnDeviceStateChanged;
-                _client.Dispose();
+                _enumerator?.Unregister();
+                _client.Detach();
             }
         }
         catch (Exception ex) { Log.Write($"ERRO COM ao cancelar notificação de saídas: {ex.Message}"); }

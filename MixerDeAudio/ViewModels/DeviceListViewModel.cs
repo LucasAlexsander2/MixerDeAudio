@@ -13,19 +13,37 @@ namespace MixerDeAudio.ViewModels;
 /// </summary>
 public sealed class DeviceListViewModel : ObservableObject, IDisposable
 {
-    private readonly DeviceTracker _tracker;
+    private readonly Func<DeviceTracker> _trackerFactory;
+    private DeviceTracker? _tracker;
     private readonly Action<string> _select;
     private readonly Func<IReadOnlyCollection<string>> _favorites;
 
+    /// <param name="trackerFactory">Lista de saídas do núcleo, lida só em <see cref="Attach"/> (a instância muda a cada ativação).</param>
     /// <param name="favorites">Ids das favoritas no momento (Fase 5, D5); vazio mostra todas as saídas.</param>
-    public DeviceListViewModel(DeviceTracker tracker, Action<string> select, Func<IReadOnlyCollection<string>> favorites)
+    public DeviceListViewModel(Func<DeviceTracker> trackerFactory, Action<string> select, Func<IReadOnlyCollection<string>> favorites)
     {
-        _tracker = tracker;
+        _trackerFactory = trackerFactory;
         _select = select;
         _favorites = favorites;
-        Refresh();
         Buttons.CollectionChanged += OnButtonsChanged;
+    }
+
+    /// <summary>Fase 8, D1: lê as saídas e liga os eventos ao abrir a janela (com o hub ativo).</summary>
+    public void Attach()
+    {
+        if (_tracker is not null) return;
+        _tracker = _trackerFactory();
+        Refresh();
         _tracker.Changed += OnTrackerChanged;
+    }
+
+    /// <summary>Fase 8, D1: desliga os eventos e esvazia os botões ao esconder a janela.</summary>
+    public void Detach()
+    {
+        if (_tracker is null) return;
+        _tracker.Changed -= OnTrackerChanged;
+        _tracker = null;
+        Buttons.Clear();
     }
 
     public ObservableCollection<DeviceButtonViewModel> Buttons { get; } = new();
@@ -49,6 +67,7 @@ public sealed class DeviceListViewModel : ObservableObject, IDisposable
     /// </summary>
     public void Refresh()
     {
+        if (_tracker is null) return;
         var desired = FavoriteFilter.Visible(_tracker.Devices, _favorites(), _tracker.ActiveId);
         for (var i = Buttons.Count - 1; i >= 0; i--)
         {
@@ -79,7 +98,7 @@ public sealed class DeviceListViewModel : ObservableObject, IDisposable
 
     public void Dispose()
     {
-        _tracker.Changed -= OnTrackerChanged;
+        Detach();
         Buttons.CollectionChanged -= OnButtonsChanged;
     }
 }

@@ -1,4 +1,5 @@
 using System;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Input;
@@ -13,13 +14,14 @@ using WinRT.Interop;
 namespace MixerDeAudio.Flyout;
 
 /// <summary>
-/// A janelinha (D14 e D15): criada a cada abertura e liberada ao fechar. Sem barra de título, sem aparecer na barra
-/// de tarefas nem no Alt+Tab, Mica, cantos arredondados.
+/// A janelinha (D14 e D15; Fase 8, D1): criada no primeiro clique e só escondida ao fechar. Escondida, não guarda nada do
+/// áudio: o núcleo é liberado e as listas esvaziadas. Sem barra de título, sem aparecer na barra de tarefas nem no
+/// Alt+Tab, Acrylic, cantos arredondados, altura que acompanha o conteúdo.
 /// </summary>
 public sealed partial class FlyoutWindow : Window
 {
-    public const double WidthDip = 420;
-    public const double HeightDip = 520;
+    public const double WidthDip = FlyoutSize.WidthDip;
+    private static readonly TimeSpan ResizeDelay = TimeSpan.FromMilliseconds(150);
 
     public SessionListViewModel ViewModel { get; }
     public DeviceListViewModel Devices { get; }
@@ -30,49 +32,56 @@ public sealed partial class FlyoutWindow : Window
     public int LoadedSessions => _hub.Sessions.SessionCount;
     public int LoadedDevices => Devices.Buttons.Count;
 
+    /// <summary>Mostrada (ou em abertura): o núcleo de áudio tem a janela como dona.</summary>
+    public bool IsOpen => _open;
+
     private readonly Action<string, bool> _onClosed;
     private SettingsView? _settingsView;
+    private bool _open;
+    private bool _presented;
+    private bool _realClose;
     private bool _isActive;
     private bool _openedWithoutFocus;
     private bool _userActivated;
     private string _reason = "sistema";
     private bool _lostFocus;
-    private bool _closedRaised;
     private readonly AudioHub _hub;
+    private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer _resizeTimer;
+    private PixelRect _logicalRect;
+    private PixelRect _actualRect;
+    private double _workHeightPx = 1000;
+    private double _scale = 1;
     private const string HubOwner = "janela";
 
-    /// <param name="hub">Núcleo de áudio compartilhado (Fase 6, D4): a janela é um dos donos.</param>
-    /// <param name="onClosed">Chamado uma vez, ao fechar, com o motivo e se foi por perda de foco.</param>
+    /// <param name="hub">Núcleo de áudio compartilhado (Fase 6, D4): a janela é um dos donos enquanto aberta.</param>
+    /// <param name="onClosed">Chamado a cada vez que a janela é escondida, com o motivo e se foi por perda de foco.</param>
     internal FlyoutWindow(AudioHub hub, Action<string, bool> onClosed)
     {
         _hub = hub;
         _onClosed = onClosed;
 
-        // Os monitores de áudio existem enquanto houver dono (D1): a janela pede no construtor e solta no Closed.
-        _hub.Acquire(HubOwner);
+        // Os monitores de áudio existem enquanto houver dono (D1): a janela pede em Attach e solta ao esconder.
         ViewModel = new SessionListViewModel(_hub, Favorites);
         Master = new MasterVolumeViewModel(_hub.SetMasterVolume, _hub.SetMasterMute);
         InitializeComponent();
 
         // Ligações feitas pelo código: o x:Bind no nível da janela só é aplicado no Loading, que pode vir tarde demais.
-        Devices = new DeviceListViewModel(_hub.Devices, _hub.SetDefaultDevice, Favorites);
+        Devices = new DeviceListViewModel(() => _hub.Devices, _hub.SetDefaultDevice, Favorites);
         DeviceList.ItemsSource = Devices.Buttons;
         MasterHost.ItemsSource = new[] { Master };
         Devices.PropertyChanged += OnDevicesChanged;
         UpdateNoDeviceText();
-        _hub.MasterChanged += Master.Apply;
-        // O volume geral já foi lido pelo hub, antes da ligação acima: aplica o valor atual.
-        Master.Apply(_hub.MasterAvailable, _hub.MasterVolume, _hub.MasterMuted);
-
         SessionList.ItemsSource = ViewModel.Rows;
         ViewModel.PropertyChanged += OnViewModelChanged;
         UpdateEmptyText();
 
-        ApplyTheme();
-        App.Settings.Changed += ApplyTheme;
+        _resizeTimer = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread().CreateTimer();
+        _resizeTimer.Interval = ResizeDelay;
+        _resizeTimer.IsRepeating = false;
+        _resizeTimer.Tick += (_, _) => ApplyHeight();
 
         Title = "Mixer de Áudio";
-        SystemBackdrop = new Microsoft.UI.Xaml.Media.MicaBackdrop();
+        SystemBackdrop = new Microsoft.UI.Xaml.Media.DesktopAcrylicBackdrop(); // Fase 8, D4
         ExtendsContentIntoTitleBar = true;
 
         var presenter = (OverlappedPresenter)AppWindow.Presenter;
@@ -90,14 +99,65 @@ public sealed partial class FlyoutWindow : Window
         NativeMethods.DwmSetWindowAttribute(hwnd, NativeMethods.DWMWA_WINDOW_CORNER_PREFERENCE, ref round, sizeof(int));
 
         Activated += OnActivated;
-        Closed += OnClosed;
+        AppWindow.Closing += OnAppWindowClosing;
         Root.KeyDown += OnKeyDown;
     }
 
-    /// <summary>Posiciona, dimensiona e mostra a janela. Sem <paramref name="activate"/>, não rouba o foco (D18).</summary>
-    public void Present(PixelRect rect, bool activate)
+    /// <summary>
+    /// Prepara a abertura (D1): a janela vira dona do núcleo, as view models leem o estado e ligam os eventos, e o tema é
+    /// reaplicado. Ainda não mostra nada.
+    /// </summary>
+    public void Attach()
     {
-        AppWindow.MoveAndResize(new RectInt32(rect.X, rect.Y, rect.Width, rect.Height));
+        if (_open) return;
+        _open = true;
+        _hub.Acquire(HubOwner);
+        ViewModel.Attach();
+        Devices.Attach();
+        ViewModel.LayoutChanged += OnLayoutChanged;
+        _hub.MasterChanged += Master.Apply;
+        // O volume geral já foi lido pelo hub, antes da ligação acima: aplica o valor atual.
+        Master.Apply(_hub.MasterAvailable, _hub.MasterVolume, _hub.MasterMuted);
+        UpdateEmptyText();
+        UpdateNoDeviceText();
+        ApplyTheme();
+        App.Settings.Changed += ApplyTheme;
+        _isActive = false;
+    }
+
+    /// <summary>
+    /// Altura da janela em DIP para o conteúdo atual (D2): a do <c>Measure</c> com 420 DIP de largura, entre o mínimo e o
+    /// máximo; a página de configurações usa o máximo. Guarda a área útil e a escala para os ajustes seguintes.
+    /// </summary>
+    public double HeightDipFor(double workAreaHeightPx, double scale)
+    {
+        _workHeightPx = workAreaHeightPx;
+        _scale = scale;
+        return TargetHeightDip();
+    }
+
+    private double TargetHeightDip()
+    {
+        if (_settingsView is not null) return FlyoutSize.Max(_workHeightPx, _scale);
+        Root.Measure(new Windows.Foundation.Size(WidthDip, double.PositiveInfinity));
+        var desired = Root.DesiredSize.Height;
+        var final = FlyoutSize.Height(desired, _workHeightPx, _scale);
+        Log.Write($"janela: altura desejada {desired:0} DIP, final {final:0} DIP");
+        return final;
+    }
+
+    /// <summary>
+    /// Posiciona, dimensiona e mostra a janela. <paramref name="logical"/> é a posição calculada; <paramref name="actual"/>
+    /// é onde a janela fica de fato (diferente no modo de teste oculto). Sem <paramref name="activate"/>, não rouba o foco (D18).
+    /// </summary>
+    public void Present(PixelRect logical, PixelRect actual, bool activate)
+    {
+        _logicalRect = logical;
+        _actualRect = actual;
+        _presented = true;
+        _openedWithoutFocus = !activate;
+        _userActivated = false;
+        AppWindow.MoveAndResize(new RectInt32(actual.X, actual.Y, actual.Width, actual.Height));
         if (activate)
         {
             Activate();
@@ -105,23 +165,79 @@ public sealed partial class FlyoutWindow : Window
         }
         else
         {
-            _openedWithoutFocus = true;
             AppWindow.Show(false);
         }
     }
 
-    /// <summary>Fecha pedindo um motivo para o log e para a regra de alternância.</summary>
+    /// <summary>Esconde pedindo um motivo para o log e para a regra de alternância (D1). Sem efeito se já está escondida.</summary>
     public void RequestClose(string reason, bool lostFocus = false)
     {
+        if (!_open) return;
         _reason = reason;
         _lostFocus = lostFocus;
+        Hide();
+    }
+
+    /// <summary>Fecha de verdade (só ao sair do app).</summary>
+    public void CloseForReal()
+    {
+        RequestClose("saindo");
+        _realClose = true;
         Close();
+    }
+
+    private void Hide()
+    {
+        _open = false;
+        _presented = false;
+        _resizeTimer.Stop();
+        AppWindow.Hide();
+        _isActive = false;
+        App.Settings.Changed -= ApplyTheme;
+        ViewModel.LayoutChanged -= OnLayoutChanged;
+        _hub.MasterChanged -= Master.Apply;
+        ReleaseSettings();
+        // A página principal volta a ser a visível, para a próxima abertura.
+        MainPage.Visibility = Visibility.Visible;
+        Footer.Visibility = Visibility.Visible;
+        // D1: soltar o áudio antes de avisar o App (que agenda a devolução de memória).
+        ViewModel.Detach();
+        Devices.Detach();
+        SessionScroll.ChangeView(0, 0, null, true);
+        _hub.Release(HubOwner); // o último dono solta tudo, na mesma ordem de antes (Fase 6, D1)
+        _onClosed(_reason, _lostFocus);
+    }
+
+    private void OnAppWindowClosing(AppWindow sender, AppWindowClosingEventArgs args)
+    {
+        if (_realClose) return;
+        args.Cancel = true; // Alt+F4 etc.: só esconde
+        RequestClose("fechar");
+    }
+
+    private void OnLayoutChanged()
+    {
+        if (!_presented) return;
+        _resizeTimer.Stop();
+        _resizeTimer.Start();
+    }
+
+    /// <summary>Refaz a altura (D2): mantém a borda de baixo, então a janela cresce para cima.</summary>
+    private void ApplyHeight()
+    {
+        if (!_open || !_presented) return;
+        var height = (int)Math.Round(TargetHeightDip() * _scale);
+        if (height == _actualRect.Height) return;
+        _actualRect = new PixelRect(_actualRect.X, _actualRect.Bottom - height, _actualRect.Width, height);
+        _logicalRect = new PixelRect(_logicalRect.X, _logicalRect.Bottom - height, _logicalRect.Width, height);
+        AppWindow.MoveAndResize(new RectInt32(_actualRect.X, _actualRect.Y, _actualRect.Width, _actualRect.Height));
+        Log.Write($"janela: posicao calculada {_logicalRect.X},{_logicalRect.Y},{_logicalRect.Width},{_logicalRect.Height}");
     }
 
     /// <summary>Favoritas atuais (D5), lidas da configuração em memória.</summary>
     private static System.Collections.Generic.IReadOnlyCollection<string> Favorites() => App.Settings.Current.Favoritos;
 
-    /// <summary>D10: o tema do conteúdo; a Mica segue o tema do conteúdo.</summary>
+    /// <summary>D10: o tema do conteúdo; o Acrylic segue o tema do conteúdo.</summary>
     private void ApplyTheme()
     {
         Root.RequestedTheme = App.Settings.Current.Tema switch
@@ -137,13 +253,14 @@ public sealed partial class FlyoutWindow : Window
     /// <summary>Troca a página principal pela de configurações (D9); a página é criada agora.</summary>
     public void ShowSettings()
     {
-        if (_settingsView is not null) return;
+        if (!_open || _settingsView is not null) return;
         _settingsView = new SettingsView(App.Settings, _hub.Devices, App.Remote);
         _settingsView.BackRequested += ShowMain;
         SettingsHost.Children.Add(_settingsView);
         SettingsHost.Visibility = Visibility.Visible;
         MainPage.Visibility = Visibility.Collapsed;
         Footer.Visibility = Visibility.Collapsed;
+        ApplyHeight();
         FocusIfActive();
     }
 
@@ -157,6 +274,7 @@ public sealed partial class FlyoutWindow : Window
         Devices.Refresh();
         ViewModel.RefreshRoutes();
         UpdateNoDeviceText();
+        ApplyHeight();
         FocusIfActive();
     }
 
@@ -199,6 +317,7 @@ public sealed partial class FlyoutWindow : Window
 
     private void OnActivated(object sender, WindowActivatedEventArgs args)
     {
+        if (!_open) return;
         _isActive = args.WindowActivationState != WindowActivationState.Deactivated;
         if (args.WindowActivationState == WindowActivationState.PointerActivated) _userActivated = true;
         // Aberta sem foco (roteiros de teste): um aviso de ativação por código (o Invoke da UI Automation num botão faz
@@ -214,24 +333,5 @@ public sealed partial class FlyoutWindow : Window
         // Na página de configurações, Esc volta à página principal (D9); na principal, fecha.
         if (_settingsView is not null) ShowMain();
         else RequestClose("Esc");
-    }
-
-    private void OnClosed(object sender, WindowEventArgs args)
-    {
-        Activated -= OnActivated;
-        Closed -= OnClosed;
-        Root.KeyDown -= OnKeyDown;
-        App.Settings.Changed -= ApplyTheme;
-        ReleaseSettings();
-        // D1: soltar o áudio antes de avisar o App (que agenda a devolução de memória).
-        ViewModel.PropertyChanged -= OnViewModelChanged;
-        Devices.PropertyChanged -= OnDevicesChanged;
-        _hub.MasterChanged -= Master.Apply;
-        ViewModel.Dispose();
-        Devices.Dispose();
-        _hub.Release(HubOwner); // o último dono solta tudo, na mesma ordem de antes (Fase 6, D1)
-        if (_closedRaised) return;
-        _closedRaised = true;
-        _onClosed(_reason, _lostFocus);
     }
 }

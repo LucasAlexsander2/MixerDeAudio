@@ -173,6 +173,9 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
 
     // ---- Controle pelo celular (Fase 6, D17 e D18) ----
 
+    /// <summary>Rodapé das Configurações (Fase 8, D15), lido do assembly.</summary>
+    public string VersionLabel { get; } = VersionText.Format(System.Reflection.Assembly.GetExecutingAssembly().GetName().Version);
+
     /// <summary>A seção só aparece quando o servidor existe (sempre, no app).</summary>
     public Visibility RemoteAvailableVisibility => _remote is not null ? Visibility.Visible : Visibility.Collapsed;
 

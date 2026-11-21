@@ -1,6 +1,6 @@
 # Estado do projeto
 
-**Fase atual:** Fases 1 a 7 concluídas (Fase 7, controles de música por app: teste do usuário aprovado em 21/11/2026). Próxima: Fase 8 (polimento, otimização e instalador). Detalhes em `docs/fases/fase-1.md` a `fase-6.md`; plano em `docs/PLANO.md`.
+**Fase atual:** Fases 1 a 8 concluídas (Fase 8, polimento, otimização e instalador: aprovada em 21/11/2026). Próxima: Fase 9 (controle do PC pelo celular, decisão A12). Detalhes em `docs/fases/fase-1.md` a `fase-8.md`; plano em `docs/PLANO.md`.
 
 ## Comandos
 
@@ -15,6 +15,9 @@ dotnet test MixerDeAudio.Tests -v q
 
 # Publicar (Release, ReadyToRun, self-contained) em publicado\
 dotnet publish MixerDeAudio\MixerDeAudio.csproj -c Release -p:Platform=x64 -r win-x64 --self-contained -o publicado -v q
+
+# Instalador: gera dist\MixerDeAudio-<versão>-x64-setup.exe (publica em dist\app, não mexe em publicado\)
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\release\gerar.ps1
 
 # Roteiro de tela e medição (usam publicado\)
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\testes\roteiro-f1.ps1

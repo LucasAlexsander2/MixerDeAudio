@@ -17,21 +17,32 @@ namespace MixerDeAudio.ViewModels;
 public sealed class SessionListViewModel : ObservableObject, IDisposable
 {
     private readonly AudioHub _hub;
-    private readonly SessionTracker _tracker;
-    private readonly DeviceTracker _devices;
+    private SessionTracker? _tracker;
+    private DeviceTracker? _devices;
+    private bool _attached;
     private readonly Func<IReadOnlyCollection<string>> _favorites;
 
     /// <summary>
-    /// Fase 6, D3 e D4: as linhas nascem do hub, que pode já estar ativo (celular conectado): as que já existem entram
-    /// primeiro, e as novas chegam pelos avisos do <see cref="SessionTracker"/>. Os comandos apontam para o hub.
+    /// Fase 8, D1: a janela é reaproveitada, então a view model vive entre aberturas e só liga ao núcleo em
+    /// <see cref="Attach"/> (com o hub ativo) e desliga em <see cref="Detach"/>. Os comandos apontam para o hub.
     /// </summary>
     internal SessionListViewModel(AudioHub hub, Func<IReadOnlyCollection<string>> favorites)
     {
         _favorites = favorites;
         _hub = hub;
-        _tracker = hub.Sessions;
-        _devices = hub.Devices;
         Rows.CollectionChanged += OnRowsChanged;
+    }
+
+    /// <summary>
+    /// Fase 6, D3 e D4: as linhas nascem do hub, que pode já estar ativo (celular conectado): as que já existem entram
+    /// primeiro, e as novas chegam pelos avisos do <see cref="SessionTracker"/>. Só com o hub ativo.
+    /// </summary>
+    public void Attach()
+    {
+        if (_attached) return;
+        _attached = true;
+        _tracker = _hub.Sessions;
+        _devices = _hub.Devices;
         foreach (var group in _tracker.Groups) AddRow(group, Rows.Count);
         _tracker.Changed += OnTrackerChanged;
         _devices.Changed += OnDevicesChanged;
@@ -40,11 +51,43 @@ public sealed class SessionListViewModel : ObservableObject, IDisposable
         SyncMedia();
     }
 
+    /// <summary>Desliga os eventos do núcleo e esvazia as linhas (a janela escondida não guarda nada do áudio).</summary>
+    public void Detach()
+    {
+        if (!_attached) return;
+        _attached = false;
+        if (_tracker is not null) _tracker.Changed -= OnTrackerChanged;
+        if (_devices is not null) _devices.Changed -= OnDevicesChanged;
+        _hub.RouteChanged -= OnRouteChanged;
+        _hub.MediaChanged -= OnMediaChanged;
+        _tracker = null;
+        _devices = null;
+        foreach (var row in Rows) row.PropertyChanged -= OnRowPropertyChanged;
+        Rows.Clear();
+        OnPropertyChanged(nameof(EmptyVisibility));
+    }
+
+    /// <summary>A quantidade de linhas, ou a 3ª linha de mídia de alguma, mudou (a altura da janela pode mudar; Fase 8, D2).</summary>
+    public event Action? LayoutChanged;
+
     public ObservableCollection<SessionRowViewModel> Rows { get; } = new();
 
     public Visibility EmptyVisibility => Rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
 
-    private void OnRowsChanged(object? sender, NotifyCollectionChangedEventArgs e) => OnPropertyChanged(nameof(EmptyVisibility));
+    private void OnRowsChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        OnPropertyChanged(nameof(EmptyVisibility));
+        if (e.OldItems is not null)
+            foreach (SessionRowViewModel row in e.OldItems) row.PropertyChanged -= OnRowPropertyChanged;
+        if (e.NewItems is not null)
+            foreach (SessionRowViewModel row in e.NewItems) row.PropertyChanged += OnRowPropertyChanged;
+        if (e.Action != NotifyCollectionChangedAction.Move && _attached) LayoutChanged?.Invoke();
+    }
+
+    private void OnRowPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(SessionRowViewModel.MediaVisibility) && _attached) LayoutChanged?.Invoke();
+    }
 
     private void OnTrackerChanged(GroupChange change)
     {
@@ -71,7 +114,8 @@ public sealed class SessionListViewModel : ObservableObject, IDisposable
 
     private void AddRow(GroupSnapshot group, int index)
     {
-        var row = new SessionRowViewModel(group, _hub.SetVolume, _hub.SetMute, OnMediaCommand);
+        var row = new SessionRowViewModel(group, _hub.SetVolume, _hub.SetMute, OnMediaCommand,
+            iconKey: _hub.GroupIconKey(group.Key, group.ExePath));
         Rows.Insert(Math.Min(index, Rows.Count), row);
         row.LoadIcon();
         LoadRoutes(row);
@@ -113,7 +157,8 @@ public sealed class SessionListViewModel : ObservableObject, IDisposable
             if (row is null)
             {
                 var snapshot = new GroupSnapshot(key, _hub.MediaAppName(m.Aumid), _hub.MediaExePath(m.Aumid), 0f, false, false, 0);
-                row = new SessionRowViewModel(snapshot, _hub.SetVolume, _hub.SetMute, OnMediaCommand, mediaOnly: true);
+                row = new SessionRowViewModel(snapshot, _hub.SetVolume, _hub.SetMute, OnMediaCommand, mediaOnly: true,
+                    iconKey: _hub.MediaIconKey(m.Aumid));
                 Rows.Add(row);
                 row.LoadIcon();
             }
@@ -145,7 +190,7 @@ public sealed class SessionListViewModel : ObservableObject, IDisposable
 
     /// <summary>Saídas que aparecem na linha (D5 e D6): as favoritas e, no fim, a efetiva do app se não for favorita.</summary>
     private List<DeviceInfo> VisibleFor(SessionRowViewModel row) =>
-        FavoriteFilter.Visible(_devices.Devices, _favorites(), EffectiveOf(row));
+        FavoriteFilter.Visible(_devices!.Devices, _favorites(), EffectiveOf(row));
 
     private void RebuildRoutes(SessionRowViewModel row)
     {
@@ -172,7 +217,7 @@ public sealed class SessionListViewModel : ObservableObject, IDisposable
     }
 
     private string? EffectiveOf(SessionRowViewModel row) =>
-        AppRouting.Effective(_hub.PreferredOf(row.Key), _devices.DefaultId, _devices.Devices.Select(d => d.Id));
+        AppRouting.Effective(_hub.PreferredOf(row.Key), _devices!.DefaultId, _devices.Devices.Select(d => d.Id));
 
     /// <summary>
     /// Move o destaque; se o conjunto de botões visíveis mudou (a efetiva entrou ou saiu do "extra" do P2), refaz a linha.
@@ -209,10 +254,7 @@ public sealed class SessionListViewModel : ObservableObject, IDisposable
 
     public void Dispose()
     {
-        _tracker.Changed -= OnTrackerChanged;
-        _devices.Changed -= OnDevicesChanged;
-        _hub.RouteChanged -= OnRouteChanged;
-        _hub.MediaChanged -= OnMediaChanged;
+        Detach();
         Rows.CollectionChanged -= OnRowsChanged;
     }
 }

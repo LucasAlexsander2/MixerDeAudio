@@ -107,4 +107,28 @@ public class FlyoutPlacementTests
         Assert.Equal(540, r.Y);
         Assert.True(r.X >= work.X);
     }
+
+    [Theory]
+    [InlineData(260)]
+    [InlineData(340)]
+    [InlineData(560)]
+    public void BarraEmbaixo_AlturaVariavel_BordaDeBaixoFixa(double heightDip)
+    {
+        var work = new PixelRect(0, 0, 1920, 1032);
+        var r = FlyoutPlacement.Compute(new PixelPoint(960, 1050), Monitor, work, 1.0, 420, heightDip);
+        Assert.Equal(1032 - 12, r.Bottom);
+        Assert.Equal((int)heightDip, r.Height);
+    }
+
+    [Fact]
+    public void BarraEmbaixo_AlturaVariavel_Escala150_BordaDeBaixoFixa()
+    {
+        var monitor = new PixelRect(0, 0, 2880, 1620);
+        var work = new PixelRect(0, 0, 2880, 1548);
+        var menor = FlyoutPlacement.Compute(new PixelPoint(1440, 1600), monitor, work, 1.5, 420, 300);
+        var maior = FlyoutPlacement.Compute(new PixelPoint(1440, 1600), monitor, work, 1.5, 420, 500);
+        Assert.Equal(menor.Bottom, maior.Bottom);
+        Assert.True(maior.Y < menor.Y);
+        Assert.Equal(menor.X, maior.X);
+    }
 }

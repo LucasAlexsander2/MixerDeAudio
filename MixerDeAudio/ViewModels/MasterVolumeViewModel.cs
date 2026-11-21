@@ -1,4 +1,7 @@
 using System;
+using Microsoft.UI.Input;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Input;
 using MixerDeAudio.Audio;
 
 namespace MixerDeAudio.ViewModels;
@@ -50,6 +53,15 @@ public sealed class MasterVolumeViewModel : ObservableObject
     public string ValueText => ((int)Math.Round(_volume)).ToString();
     public string MuteGlyph => VolumeGlyph.For((int)Math.Round(_volume), _muted);
     public string MuteName => _muted ? "Ativar som" : "Silenciar tudo";
+
+    /// <summary>Roda do mouse sobre o slider (Fase 8, D3): ±2 por dente, pelo mesmo caminho do arrastar.</summary>
+    public void OnWheel(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_enabled) return;
+        var delta = e.GetCurrentPoint((UIElement)sender).Properties.MouseWheelDelta;
+        Volume = VolumeStep.Apply(_volume, delta);
+        e.Handled = true; // a lista não rola junto
+    }
 
     /// <summary>Aplica o estado vindo do Windows sem gravar de volta (D12).</summary>
     public void Apply(bool available, float volume, bool muted)

@@ -13,7 +13,7 @@ using Windows.Graphics;
 namespace MixerDeAudio;
 
 /// <summary>
-/// O app não tem janela principal (D7): só o ícone da bandeja. A janelinha é criada ao abrir e liberada ao fechar.
+/// O app não tem janela principal (D7): só o ícone da bandeja. A janelinha é criada no primeiro clique e só escondida ao fechar (Fase 8, D1).
 /// </summary>
 public partial class App : Application
 {
@@ -137,7 +137,7 @@ public partial class App : Application
     {
         RunOnUi(() =>
         {
-            if (_flyout is not null) _flyout.RequestClose("ícone");
+            if (_flyout is { IsOpen: true }) _flyout.RequestClose("ícone");
             else Open(activate: true, atCursor: true, checkGate: true);
         });
     }
@@ -148,7 +148,7 @@ public partial class App : Application
         {
             if (_exiting) return;
             if (_hiddenTest) activate = false; // modo de teste oculto: nunca ativa a janela
-            if (_flyout is not null)
+            if (_flyout is { IsOpen: true })
             {
                 if (settings) _flyout.ShowSettings();
                 if (activate) _flyout.Activate();
@@ -157,24 +157,29 @@ public partial class App : Application
             if (checkGate && !_gate.CanOpen()) return;
 
             var timer = System.Diagnostics.Stopwatch.StartNew();
-            var rect = ComputePlacement(atCursor);
-            _flyout = new FlyoutWindow(_hub, OnFlyoutClosed);
+            // Fase 8, D1: a janela é criada no primeiro pedido e reaproveitada depois.
+            var created = _flyout is null;
+            _flyout ??= new FlyoutWindow(_hub, OnFlyoutClosed);
+            Log.Write(created ? "janela: criada" : "janela: reaproveitada");
+            _flyout.Attach();
             if (settings) _flyout.ShowSettings();
+            var rect = ComputePlacement(atCursor, _flyout);
             timer.Stop();
             Log.Write($"sessoes carregadas (apps={_flyout.LoadedApps}, sessoes={_flyout.LoadedSessions}, saidas={_flyout.LoadedDevices}, {timer.ElapsedMilliseconds} ms)");
             Log.Write($"janela: posicao calculada {rect.X},{rect.Y},{rect.Width},{rect.Height}");
+            var actual = rect;
             if (_hiddenTest)
             {
-                try { rect = HiddenRect(rect); }
+                try { actual = HiddenRect(rect); }
                 catch (Exception ex) { Log.Write($"ERRO no modo oculto: {ex}"); }
             }
-            Log.Write($"janela: apresentando em {rect.X},{rect.Y}");
-            _flyout.Present(rect, activate);
+            Log.Write($"janela: apresentando em {actual.X},{actual.Y}");
+            _flyout.Present(rect, actual, activate);
             Log.Write("janela aberta");
         });
     }
 
-    private static PixelRect ComputePlacement(bool atCursor)
+    private static PixelRect ComputePlacement(bool atCursor, FlyoutWindow flyout)
     {
         DisplayArea area;
         PixelPoint cursor;
@@ -191,8 +196,10 @@ public partial class App : Application
         }
 
         var scale = NativeMethods.GetScaleAt(cursor.X, cursor.Y);
+        // Fase 8, D2: a altura vem do conteúdo (limitada pela área útil do monitor).
+        var heightDip = flyout.HeightDipFor(area.WorkArea.Height, scale);
         return FlyoutPlacement.Compute(cursor, ToPixelRect(area.OuterBounds), ToPixelRect(area.WorkArea), scale,
-            FlyoutWindow.WidthDip, FlyoutWindow.HeightDip);
+            FlyoutWindow.WidthDip, heightDip);
     }
 
     /// <summary>
@@ -218,7 +225,6 @@ public partial class App : Application
 
     private void OnFlyoutClosed(string reason, bool lostFocus)
     {
-        _flyout = null;
         _gate.NotifyClosed(lostFocus);
         Log.Write($"janela fechada ({reason})");
         // O modo de eficiência e o trim voltam quando o hub fica sem dono (OnHubIdle), não só com a janela fechada.
@@ -246,7 +252,8 @@ public partial class App : Application
             Log.Write("saindo");
             _trimTimer?.Stop();
             _remote?.Dispose();
-            _flyout?.RequestClose("saindo");
+            _flyout?.CloseForReal();
+            _flyout = null;
             _hub.ReleaseAll();
             _tray?.Dispose();
             _tray = null;

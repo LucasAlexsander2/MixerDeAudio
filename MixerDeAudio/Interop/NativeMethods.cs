@@ -61,6 +61,55 @@ internal static partial class NativeMethods
     [LibraryImport("shell32.dll", StringMarshalling = StringMarshalling.Utf16)]
     public static partial int SHCreateItemInKnownFolder(in Guid folderId, uint flags, string item, in Guid riid, out IntPtr result);
 
+    [LibraryImport("shell32.dll", StringMarshalling = StringMarshalling.Utf16)]
+    public static partial int SHCreateItemFromParsingName(string path, IntPtr bindContext, in Guid riid, out IntPtr result);
+
+    // ---- GDI (ícone do shell para PNG; Fase 8, D5) ----
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct BITMAP
+    {
+        public int bmType;
+        public int bmWidth;
+        public int bmHeight;
+        public int bmWidthBytes;
+        public ushort bmPlanes;
+        public ushort bmBitsPixel;
+        public IntPtr bmBits;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct BITMAPINFOHEADER
+    {
+        public uint biSize;
+        public int biWidth;
+        public int biHeight;
+        public ushort biPlanes;
+        public ushort biBitCount;
+        public uint biCompression;
+        public uint biSizeImage;
+        public int biXPelsPerMeter;
+        public int biYPelsPerMeter;
+        public uint biClrUsed;
+        public uint biClrImportant;
+    }
+
+    [LibraryImport("gdi32.dll")]
+    public static partial int GetObjectW(IntPtr handle, int count, out BITMAP bitmap);
+
+    [LibraryImport("gdi32.dll")]
+    public static unsafe partial int GetDIBits(IntPtr hdc, IntPtr bitmap, uint start, uint lines, byte* bits, ref BITMAPINFOHEADER info, uint usage);
+
+    [LibraryImport("gdi32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool DeleteObject(IntPtr handle);
+
+    [LibraryImport("user32.dll")]
+    public static partial IntPtr GetDC(IntPtr hwnd);
+
+    [LibraryImport("user32.dll")]
+    public static partial int ReleaseDC(IntPtr hwnd, IntPtr hdc);
+
     [LibraryImport("shlwapi.dll", StringMarshalling = StringMarshalling.Utf16)]
     public static partial int SHLoadIndirectString(string source, [Out] char[] outBuffer, uint outBufferSize, IntPtr reserved);
 

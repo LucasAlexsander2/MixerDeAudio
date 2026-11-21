@@ -246,6 +246,26 @@ internal sealed class AudioHub
         return !string.IsNullOrWhiteSpace(path) && System.IO.File.Exists(path) ? path : _aumids.StoreExePath(aumid);
     }
 
+    /// <summary>
+    /// Fonte do ícone de uma linha de som (Fase 8, D5): "aumid:&lt;id&gt;" se algum processo do grupo for app da Loja
+    /// (AUMID com "!"), senão o caminho do .exe.
+    /// </summary>
+    public string? GroupIconKey(string groupKey, string? exePath)
+    {
+        if (_tracker is not null)
+        {
+            foreach (var pid in _tracker.ProcessIds(groupKey))
+            {
+                var aumid = _aumids.ProcessAumid(pid);
+                if (aumid is not null && aumid.Contains('!')) return AppIconCache.AumidPrefix + aumid;
+            }
+        }
+        return exePath;
+    }
+
+    /// <summary>Fonte do ícone de uma linha só de mídia (Fase 8, D5): o AUMID da Loja ("!") ou o .exe.</summary>
+    public string? MediaIconKey(string aumid) => aumid.Contains('!') ? AppIconCache.AumidPrefix + aumid : MediaExePath(aumid);
+
     /// <summary>Faixa anterior no app com esse AUMID (D5).</summary>
     public void MediaPrevious(string aumid) => _mediaMonitor?.Execute(aumid, MediaAction.Previous);
 

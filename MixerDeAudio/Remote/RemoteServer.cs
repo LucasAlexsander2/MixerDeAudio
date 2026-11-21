@@ -414,9 +414,9 @@ internal sealed class RemoteServer : IDisposable
             {
                 if (!_hub.IsActive) return null;
                 foreach (var g in _hub.Sessions.Groups)
-                    if (RemoteProtocol.IconId(g.Key) == id) return g.ExePath;
+                    if (RemoteProtocol.IconId(g.Key) == id) return _hub.GroupIconKey(g.Key, g.ExePath);
                 foreach (var m in _hub.Media)
-                    if (m.Key is null && RemoteProtocol.IconId(RemoteSession.MediaKeyPrefix + m.Aumid) == id) return _hub.MediaExePath(m.Aumid);
+                    if (m.Key is null && RemoteProtocol.IconId(RemoteSession.MediaKeyPrefix + m.Aumid) == id) return _hub.MediaIconKey(m.Aumid);
                 return null;
             }).ConfigureAwait(false);
         }

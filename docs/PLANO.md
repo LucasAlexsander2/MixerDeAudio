@@ -34,6 +34,7 @@ App de bandeja para o Windows 11. Um clique no ícone abre uma janelinha (~420 p
 | A9 | **Troca da saída padrão com IPolicyConfig** (não documentada, estável desde o Windows 7, usada pelo EarTrumpet e pelo SoundSwitch), escrita com `[GeneratedComInterface]`. A troca muda a saída padrão e a de comunicação. |
 | A10 | **Controle pelo celular só na rede de casa** (decidido em 20/11/2026, fora do PDF). O próprio app serve uma página leve (servidor HTTP/WebSocket pequeno, sem ASP.NET completo), que espelha tudo da janelinha: saídas, volume geral e apps com volume, mudo e saída. O celular conecta pelo endereço ou por um QR code e informa um token gerado no PC. O recurso fica desligado por padrão, com um interruptor nas Configurações, e o áudio só é observado enquanto há um celular conectado. Acesso pela internet (site hospedado) fica para depois, se for preciso. |
 | A11 | **Controles de música por app** (decidido em 21/11/2026, fora do PDF). Anterior, play/pausa e próxima, com o nome da faixa, na linha de cada app que se registra no controle de mídia do Windows (GSMTC), na janelinha e no celular. O controle só é observado enquanto o núcleo de áudio está ativo (janela aberta ou celular conectado). |
+| A12 | **Controle do PC pelo celular** (decidido em 21/11/2026, fora do PDF). A página do celular ganha ferramentas para usar o PC à distância, continuando só na rede de casa (A10).<br>- **Energia:** desligar, reiniciar, suspender e bloquear, na hora ou com timer (com contagem, cancelamento e aviso na tela).<br>- **Monitores:** modo de projeção (só a principal, só a segunda, estender, duplicar) e apagar ou acordar as telas.<br>- **Mouse e teclado:** touchpad, envio de texto e teclas especiais.<br>- **Ver a tela:** imagem atualizada.<br>- **Janelas:** lista das abertas, trazer para a frente e fechar.<br>- **Outros:** atalhos favoritos, timer de sono da música, área de transferência nos dois sentidos, envio de arquivo, estado do PC e modo apresentação/vídeo.<br>**Segurança:** só **um celular conectado por vez**; o pareamento continua como hoje (código de 6 dígitos ou QR code). |
 
 ## Etapas
 
@@ -46,7 +47,8 @@ App de bandeja para o Windows 11. Um clique no ícone abre uma janelinha (~420 p
 | 5 | Configurações e dispositivos favoritos | concluída (teste do usuário aprovado em 20/11/2026) |
 | 6 | Controle pelo celular na rede de casa (página servida pelo próprio app, token) | concluída (teste do usuário aprovado em 21/11/2026) |
 | 7 | Controles de música por app (anterior, play/pausa, próxima) na janela e no celular | concluída (teste do usuário aprovado em 21/11/2026) |
-| 8 | Polimento visual, otimização final (trimming/AOT) e instalador | — |
+| 8 | Polimento visual, otimização final (trimming/AOT) e instalador | concluída (aprovada pelo usuário em 21/11/2026) |
+| 9 | Controle do PC pelo celular (A12), em partes | — |
 
 As pendências que os documentos das fases 1 a 5 marcam para a "Fase 6" passaram para a **Fase 8**, depois das renumerações de 20/11/2026 e 21/11/2026: handles, bytes privados, trimming/AOT, Mica ou Acrylic, altura adaptável e roda do mouse nos sliders.
 - **Memória por abertura (medida em 20/11/2026):** cerca de 0,15 MB de bytes privados e 3 handles a mais a cada abertura da janela, igual nas Fases 4 e 5 (150 ciclos: +21 MB). Fica para a Fase 8, comparando com reaproveitar uma janela escondida.

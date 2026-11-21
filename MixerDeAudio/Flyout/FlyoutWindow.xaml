@@ -75,6 +75,7 @@
                                 AutomationProperties.Name="Volume geral"
                                 Minimum="0" Maximum="100" StepFrequency="1" SmallChange="1" LargeChange="5"
                                 IsThumbToolTipEnabled="False" VerticalAlignment="Center"
+                                PointerWheelChanged="{x:Bind OnWheel}"
                                 Value="{x:Bind Volume, Mode=TwoWay}" />
                         <TextBlock Grid.Column="2" AutomationProperties.AutomationId="MasterValue"
                                    Text="{x:Bind ValueText, Mode=OneWay}" VerticalAlignment="Center"
@@ -86,7 +87,7 @@
 
         <Rectangle Grid.Row="2" Height="1" Fill="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,0,18,0" />
 
-        <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto" VerticalScrollMode="Auto"
+        <ScrollViewer x:Name="SessionScroll" Grid.Row="3" VerticalScrollBarVisibility="Auto" VerticalScrollMode="Auto"
                       HorizontalScrollBarVisibility="Disabled" Padding="0,0,18,0">
             <Grid>
                 <ItemsControl x:Name="SessionList" AutomationProperties.AutomationId="SessionList"
@@ -162,6 +163,7 @@
                                                 AutomationProperties.Name="{x:Bind VolumeName, Mode=OneWay}"
                                                 Minimum="0" Maximum="100" StepFrequency="1" SmallChange="1" LargeChange="5"
                                                 IsThumbToolTipEnabled="False" VerticalAlignment="Center"
+                                                PointerWheelChanged="{x:Bind OnWheel}"
                                                 Value="{x:Bind Volume, Mode=TwoWay}" />
                                         <TextBlock Grid.Column="2" AutomationProperties.AutomationId="SessionValue"
                                                    Text="{x:Bind ValueText, Mode=OneWay}" VerticalAlignment="Center"

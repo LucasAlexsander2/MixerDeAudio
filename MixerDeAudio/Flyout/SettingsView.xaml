@@ -81,6 +81,9 @@
                     <ToggleSwitch AutomationProperties.AutomationId="RemoteSwitch" AutomationProperties.Name="Controle pelo celular"
                                   OnContent="Ligado" OffContent="Desligado"
                                   IsOn="{x:Bind Model.RemoteEnabled, Mode=TwoWay}" />
+                    <TextBlock AutomationProperties.AutomationId="RemoteFirewallHint"
+                               Text="Se o Windows perguntar, permita o acesso em redes privadas."
+                               TextWrapping="Wrap" Opacity="0.7" FontSize="12" />
                     <StackPanel Spacing="8" Visibility="{x:Bind Model.RemoteVisibility, Mode=OneWay}">
                         <TextBlock Text="No celular, no mesmo Wi-Fi, leia o QR code ou abra o endereço e digite o código."
                                    TextWrapping="Wrap" Opacity="0.7" FontSize="12" />
@@ -99,6 +102,9 @@
                                    TextWrapping="Wrap" Opacity="0.7" FontSize="12" />
                     </StackPanel>
                 </StackPanel>
+
+                <TextBlock AutomationProperties.AutomationId="AppVersion" Text="{x:Bind Model.VersionLabel}"
+                           Opacity="0.6" FontSize="12" />
             </StackPanel>
         </ScrollViewer>
     </Grid>
