@@ -96,10 +96,35 @@
                                Source="{x:Bind Model.RemoteQr, Mode=OneWay}" Width="160" Height="160" HorizontalAlignment="Left" Stretch="Uniform" />
                         <TextBlock AutomationProperties.AutomationId="RemoteCount"
                                    Text="{x:Bind Model.RemoteCount, Mode=OneWay}" />
+                        <Button AutomationProperties.AutomationId="RemoteDisconnect" AutomationProperties.Name="Desconectar"
+                                Content="Desconectar" Click="OnDisconnectClick" Visibility="{x:Bind Model.RemoteDisconnectVisibility, Mode=OneWay}" />
                         <Button AutomationProperties.AutomationId="RemoteNewCode" AutomationProperties.Name="Gerar novo código"
                                 Content="Gerar novo código" Click="OnNewCodeClick" />
                         <TextBlock Text="Gerar um novo código desconecta todos os celulares. A conexão é só pela rede de casa, sem criptografia."
                                    TextWrapping="Wrap" Opacity="0.7" FontSize="12" />
+
+                        <!-- Ferramentas do PC (Fase 9, D2) -->
+                        <TextBlock Text="Ferramentas do PC" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,8,0,0" />
+                        <TextBlock Text="Ligue só o que for usar: o celular conectado usa o PC como se estivesse no teclado."
+                                   TextWrapping="Wrap" Opacity="0.7" FontSize="12" />
+                        <ToggleSwitch AutomationProperties.AutomationId="ToolPower" AutomationProperties.Name="Desligar, reiniciar, suspender e bloquear"
+                                      Header="Energia" OnContent="Ligado" OffContent="Desligado" IsOn="{x:Bind Model.ToolPower, Mode=TwoWay}" />
+                        <ToggleSwitch AutomationProperties.AutomationId="ToolDisplay" AutomationProperties.Name="Projeção e telas"
+                                      Header="Monitores" OnContent="Ligado" OffContent="Desligado" IsOn="{x:Bind Model.ToolDisplay, Mode=TwoWay}" />
+                        <ToggleSwitch AutomationProperties.AutomationId="ToolInput" AutomationProperties.Name="Mouse, teclado e apresentação"
+                                      Header="Mouse e teclado" OnContent="Ligado" OffContent="Desligado" IsOn="{x:Bind Model.ToolInput, Mode=TwoWay}" />
+                        <ToggleSwitch AutomationProperties.AutomationId="ToolScreen" AutomationProperties.Name="Ver a tela"
+                                      Header="Ver a tela" OnContent="Ligado" OffContent="Desligado" IsOn="{x:Bind Model.ToolScreen, Mode=TwoWay}" />
+                        <ToggleSwitch AutomationProperties.AutomationId="ToolWindows" AutomationProperties.Name="Janelas abertas"
+                                      Header="Janelas" OnContent="Ligado" OffContent="Desligado" IsOn="{x:Bind Model.ToolWindows, Mode=TwoWay}" />
+                        <ToggleSwitch AutomationProperties.AutomationId="ToolShortcuts" AutomationProperties.Name="Atalhos favoritos"
+                                      Header="Atalhos" OnContent="Ligado" OffContent="Desligado" IsOn="{x:Bind Model.ToolShortcuts, Mode=TwoWay}" />
+                        <Button AutomationProperties.AutomationId="ShortcutsFolder" AutomationProperties.Name="Abrir pasta de atalhos"
+                                Content="Abrir pasta de atalhos" Click="OnShortcutsFolderClick" Visibility="{x:Bind Model.ShortcutsFolderVisibility, Mode=OneWay}" />
+                        <ToggleSwitch AutomationProperties.AutomationId="ToolTransfer" AutomationProperties.Name="Área de transferência e arquivos"
+                                      Header="Área de transferência e arquivos" OnContent="Ligado" OffContent="Desligado" IsOn="{x:Bind Model.ToolTransfer, Mode=TwoWay}" />
+                        <ToggleSwitch AutomationProperties.AutomationId="ToolInfo" AutomationProperties.Name="Estado do PC e timer de sono"
+                                      Header="Estado do PC e timer de sono" OnContent="Ligado" OffContent="Desligado" IsOn="{x:Bind Model.ToolInfo, Mode=TwoWay}" />
                     </StackPanel>
                 </StackPanel>
 

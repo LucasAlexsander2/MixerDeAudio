@@ -72,6 +72,7 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
     private bool _startup;
     private bool _disposed;
     private Visibility _remoteVisibility = Visibility.Collapsed;
+    private Visibility _remoteDisconnectVisibility = Visibility.Collapsed;
     private string _remoteAddress = "";
     private string _remoteCode = "";
     private string _remoteCount = "";
@@ -258,10 +259,64 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>"Conectado: Android" ou "Nenhum celular conectado" (Fase 9, D4); o botão Desconectar só aparece com alguém conectado.</summary>
     private void UpdateCount()
     {
-        var n = _remote?.ConnectionCount ?? 0;
-        RemoteCount = n == 1 ? "1 celular conectado" : $"{n} celulares conectados";
+        var name = _remote?.ConnectedPhoneName;
+        RemoteCount = name is null ? "Nenhum celular conectado" : $"Conectado: {(string.IsNullOrWhiteSpace(name) ? "celular" : name)}";
+        RemoteDisconnectVisibility = name is null ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    public Visibility RemoteDisconnectVisibility { get => _remoteDisconnectVisibility; private set => SetProperty(ref _remoteDisconnectVisibility, value); }
+
+    /// <summary>"Desconectar": o celular vê "Desconectado"; a chave continua pareada.</summary>
+    public void Disconnect() => _remote?.DisconnectAll();
+
+    // ---- Ferramentas do PC (Fase 9, D2) ----
+
+    public bool ToolPower { get => IsTool(RemoteTools.Power); set => SetTool(RemoteTools.Power, value); }
+    public bool ToolDisplay { get => IsTool(RemoteTools.Display); set => SetTool(RemoteTools.Display, value); }
+    public bool ToolInput { get => IsTool(RemoteTools.Input); set => SetTool(RemoteTools.Input, value); }
+    public bool ToolScreen { get => IsTool(RemoteTools.Screen); set => SetTool(RemoteTools.Screen, value); }
+    public bool ToolWindows { get => IsTool(RemoteTools.Windows); set => SetTool(RemoteTools.Windows, value); }
+    public bool ToolShortcuts { get => IsTool(RemoteTools.Shortcuts); set => SetTool(RemoteTools.Shortcuts, value); }
+    public bool ToolTransfer { get => IsTool(RemoteTools.Transfer); set => SetTool(RemoteTools.Transfer, value); }
+    public bool ToolInfo { get => IsTool(RemoteTools.Info); set => SetTool(RemoteTools.Info, value); }
+
+    private bool IsTool(string id) => RemoteTools.IsEnabled(_store.Current.FerramentasCelular, id);
+
+    private void SetTool(string id, bool on, [System.Runtime.CompilerServices.CallerMemberName] string? property = null)
+    {
+        if (IsTool(id) == on) return;
+        // O servidor e o celular reagem pelo evento Changed da configuração; desligar cancela o que estava em andamento
+        _store.Update(s => s with { FerramentasCelular = RemoteTools.With(s.FerramentasCelular, id, on) });
+        Log.Write($"celular: ferramenta {id} {(on ? "ligada" : "desligada")}");
+        OnPropertyChanged(property);
+        if (id == RemoteTools.Shortcuts) OnPropertyChanged(nameof(ShortcutsFolderVisibility));
+    }
+
+    /// <summary>"Abrir pasta de atalhos" (Fase 9c, D23): só com o grupo atalhos ligado.</summary>
+    public Visibility ShortcutsFolderVisibility => ToolShortcuts ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>Abre a pasta de atalhos no Explorer (cria se não existir). No <c>--teste-pc</c> só cria: nenhuma janela abre.</summary>
+    public void OpenShortcutsFolder()
+    {
+        var folder = Pc.ShortcutFolder.PathFor(AppPaths.DataFolder, App.TestPc);
+        Pc.ShortcutFolder.Ensure(folder);
+        if (App.TestPc)
+        {
+            Log.Write("celular: pasta de atalhos nao aberta (modo de teste)");
+            return;
+        }
+        try
+        {
+            using var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(folder) { UseShellExecute = true });
+            Log.Write("celular: pasta de atalhos aberta");
+        }
+        catch (Exception ex)
+        {
+            Log.Write($"ERRO celular: pasta de atalhos: {ex.Message}");
+        }
     }
 
     // Vem de qualquer thread (rede)

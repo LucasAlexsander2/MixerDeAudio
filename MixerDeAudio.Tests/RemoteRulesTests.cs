@@ -227,7 +227,7 @@ public class RemoteRulesTests
     }
 
     [Fact]
-    public void PaginaDoCelular_TemMenosDe40KbESemUrlExterna()
+    public void PaginaDoCelular_TemMenosDe64KbESemUrlExterna()
     {
         var dir = AppContext.BaseDirectory;
         string? path = null;
@@ -238,7 +238,7 @@ public class RemoteRulesTests
         }
         Assert.NotNull(path);
         var bytes = File.ReadAllBytes(path!);
-        Assert.True(bytes.Length < 40 * 1024, $"index.html tem {bytes.Length} bytes");
+        Assert.True(bytes.Length < 64 * 1024, $"index.html tem {bytes.Length} bytes");
         var text = Encoding.UTF8.GetString(bytes);
         Assert.DoesNotMatch(@"https?://", text);
         Assert.DoesNotMatch(@"(src|href)\s*=\s*[""']?//", text);

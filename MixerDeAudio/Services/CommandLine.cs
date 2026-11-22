@@ -27,8 +27,9 @@ public enum AppCommand
 
 /// <summary>Resultado da leitura da linha de comando.</summary>
 /// <param name="CelularLocal"><c>--celular-local</c> (Fase 6, D12): o servidor do celular escuta só em 127.0.0.1 (uso nos roteiros).</param>
+/// <param name="TestPc"><c>--teste-pc</c> (Fase 9, D7): as ações do PC (energia, projeção, telas) só vão para o log; nada é feito de verdade (uso nos roteiros).</param>
 /// <param name="HiddenTest"><c>--teste-oculto</c> (Fase 7): modo dos roteiros de teste; nenhuma janela aparece nas telas, nunca é ativada e o ícone da bandeja não é criado.</param>
-public readonly record struct CommandLineResult(AppCommand Command, bool NoTrim, bool CelularLocal = false, bool HiddenTest = false);
+public readonly record struct CommandLineResult(AppCommand Command, bool NoTrim, bool CelularLocal = false, bool HiddenTest = false, bool TestPc = false);
 
 /// <summary>Lê a linha de comando do app. Lógica pura, sem WinUI.</summary>
 public static class CommandLine
@@ -40,6 +41,7 @@ public static class CommandLine
         var noTrim = false;
         var celularLocal = false;
         var hiddenTest = false;
+        var testPc = false;
         var unknown = false;
         var found = false;
 
@@ -61,12 +63,13 @@ public static class CommandLine
                 case "--sem-aparar": noTrim = true; break;
                 case "--celular-local": celularLocal = true; break;
                 case "--teste-oculto": hiddenTest = true; break;
+                case "--teste-pc": testPc = true; break;
                 default: unknown = true; break;
             }
         }
 
         if (!found && unknown) command = AppCommand.None;
-        return new CommandLineResult(command, noTrim, celularLocal, hiddenTest);
+        return new CommandLineResult(command, noTrim, celularLocal, hiddenTest, testPc);
     }
 
     /// <summary>Lê uma linha inteira (como vem na ativação redirecionada), respeitando aspas.</summary>

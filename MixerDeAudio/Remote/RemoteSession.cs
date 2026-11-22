@@ -8,6 +8,7 @@ using System.Threading.Channels;
 using System.Threading.Tasks;
 using Microsoft.UI.Dispatching;
 using MixerDeAudio.Audio;
+using MixerDeAudio.Pc;
 using MixerDeAudio.Services;
 
 namespace MixerDeAudio.Remote;
@@ -27,13 +28,38 @@ internal sealed class RemoteSession
     private readonly WebSocket _socket;
     private readonly DispatcherQueue _ui;
     private readonly CancellationTokenSource _cts = new();
-    private readonly Channel<string> _outbox = Channel.CreateBounded<string>(
-        new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropOldest, SingleReader = true, SingleWriter = false });
+    /// <summary>Fase 9, D5: mensagens avulsas esperando para sair (além do estado). Passou disso, o celular está lento demais.</summary>
+    internal const int MaxQueued = 64;
+
+    // Fila de saída (D5): o estado guarda só o mais recente; o resto vai numa fila FIFO que nunca descarta.
+    private readonly object _outLock = new();
+    private readonly Queue<string> _queue = new();
+    private string? _latestState;
+    private (int Code, string Reason)? _finalClose;
+    private readonly Channel<bool> _signal = Channel.CreateBounded<bool>(
+        new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropWrite, SingleReader = true, SingleWriter = false });
     private readonly string _owner;
     private DispatcherQueueTimer? _timer; // só na thread da tela
     private bool _dirty;                  // só na thread da tela
     private bool _attached;               // só na thread da tela
+    private bool _pcHooked;               // só na thread da tela: ouvindo App.Pc.Changed
     private int _closing;
+
+    // Entrada (Fase 9b, D13 e D14): executada na thread de rede, sob este lock. _input é a cópia da configuração: nulo = grupo desligado.
+    private readonly object _inLock = new();
+    private IPcActions? _input;
+    private int _held; // botões apertados (bit por MouseButton), soltos ao desconectar ou ao desligar o grupo
+
+    // Janelas e atalhos (Fase 9c), só na thread da tela
+    private static readonly TimeSpan WindowsInterval = TimeSpan.FromSeconds(3);
+    private DispatcherQueueTimer? _winTimer;  // só existe com a aba Janelas assinada (D21)
+    private string? _winSig;                  // a última lista enviada (só se mudou)
+    private List<string>? _shortcuts;         // nulo = grupo atalhos desligado; lida ao conectar e a cada "atualizar" (D23)
+
+    // Estado do PC (Fase 9d, D27): o timer e o leitor só existem com a aba PC assinada; só na thread da tela
+    private static readonly TimeSpan InfoInterval = TimeSpan.FromSeconds(2);
+    private DispatcherQueueTimer? _infoTimer;
+    private PcInfoReader? _info;
 
     public RemoteSession(RemoteServer server, AudioHub hub, WebSocket socket, DispatcherQueue ui, int number)
     {
@@ -46,6 +72,48 @@ internal sealed class RemoteSession
 
     /// <summary>Hash da chave que autenticou esta conexão (para "Gerar novo código" e para o último uso).</summary>
     public string? KeyHash { get; init; }
+
+    /// <summary>Nome do celular (tirado do User-Agent no pareamento), para a tela "ocupado" e as Configurações.</summary>
+    public string PhoneName { get; init; } = "";
+
+    /// <summary>Mensagem avulsa para o celular (de qualquer thread). Acima de <see cref="MaxQueued"/> a conexão é fechada.</summary>
+    public void Post(string json)
+    {
+        bool overflow;
+        lock (_outLock)
+        {
+            overflow = _queue.Count >= MaxQueued;
+            if (!overflow) _queue.Enqueue(json);
+        }
+        if (overflow)
+        {
+            Log.Write("celular: fila de saida cheia (celular lento demais)");
+            Close();
+            return;
+        }
+        _signal.Writer.TryWrite(true);
+    }
+
+    private void PostState(string json)
+    {
+        lock (_outLock) _latestState = json;
+        _signal.Writer.TryWrite(true);
+    }
+
+    /// <summary>
+    /// Manda <paramref name="message"/> (se houver) e fecha a conexão com o código dado, depois de tudo o que já estava na fila
+    /// (D4: 4000 = desconectado; 4001 = substituída pela mesma chave). De qualquer thread.
+    /// </summary>
+    public void Finish(string? message, int code, string reason)
+    {
+        lock (_outLock)
+        {
+            if (_finalClose is not null) return;
+            if (message is not null) _queue.Enqueue(message);
+            _finalClose = (code, reason);
+        }
+        _signal.Writer.TryWrite(true);
+    }
 
     /// <summary>Pede o fim da conexão (de qualquer thread).</summary>
     public void Close()
@@ -97,6 +165,11 @@ internal sealed class RemoteSession
             _hub.RouteChanged += OnRouteChanged;
             _hub.MediaChanged += OnMediaChanged;
             App.Settings.Changed += OnSettingsChanged;
+            if (HasTools()) App.Pc.Changed += OnPcChanged;
+            _pcHooked = HasTools();
+            if (RemoteTools.IsEnabled(App.Settings.Current.FerramentasCelular, RemoteTools.Display)) App.Pc.RefreshProjection();
+            SyncInput();
+            RefreshShortcuts();
             _timer = _ui.CreateTimer();
             _timer.Interval = CoalesceInterval;
             _timer.IsRepeating = false;
@@ -127,6 +200,11 @@ internal sealed class RemoteSession
             _hub.RouteChanged -= OnRouteChanged;
             _hub.MediaChanged -= OnMediaChanged;
             App.Settings.Changed -= OnSettingsChanged;
+            if (_pcHooked) App.Pc.Changed -= OnPcChanged;
+            _pcHooked = false;
+            DisableInput();
+            StopWindows();
+            StopInfo();
             if (_timer is not null)
             {
                 _timer.Stop();
@@ -143,7 +221,157 @@ internal sealed class RemoteSession
     private void OnMasterChanged(bool available, float volume, bool muted) => MarkDirty();
     private void OnRouteChanged(string key) => MarkDirty();
     private void OnMediaChanged() => MarkDirty();
-    private void OnSettingsChanged() => MarkDirty();
+    private void OnSettingsChanged()
+    {
+        // Ligou o primeiro grupo depois de conectar: passa a ouvir o controlador do PC
+        if (_attached && !_pcHooked && HasTools())
+        {
+            App.Pc.Changed += OnPcChanged;
+            _pcHooked = true;
+        }
+        if (_attached)
+        {
+            SyncInput();
+            var s = App.Settings.Current;
+            var shortcutsOn = s.CelularLigado && RemoteTools.IsEnabled(s.FerramentasCelular, RemoteTools.Shortcuts);
+            if (shortcutsOn != (_shortcuts is not null)) RefreshShortcuts();
+            if (!(s.CelularLigado && RemoteTools.IsEnabled(s.FerramentasCelular, RemoteTools.Windows))) StopWindows();
+            if (!(s.CelularLigado && RemoteTools.IsEnabled(s.FerramentasCelular, RemoteTools.Info))) StopInfo();
+        }
+        MarkDirty();
+    }
+
+    /// <summary>Lê a pasta de atalhos (D23): ao conectar, a cada "atualizar" e ao ligar o grupo; nulo com o grupo desligado.</summary>
+    private void RefreshShortcuts()
+    {
+        var s = App.Settings.Current;
+        _shortcuts = s.CelularLigado && RemoteTools.IsEnabled(s.FerramentasCelular, RemoteTools.Shortcuts) ? App.Pc.ShortcutNames() : null;
+    }
+
+    // ---- Janelas (D21): a lista só é lida a pedido ou com a aba assinada, e só é enviada se mudou ----
+
+    private void StartWindows()
+    {
+        if (_winTimer is null)
+        {
+            _winTimer = _ui.CreateTimer();
+            _winTimer.Interval = WindowsInterval;
+            _winTimer.IsRepeating = true;
+            _winTimer.Tick += OnWindowsTick;
+            _winTimer.Start();
+        }
+        SendWindows(force: true);
+    }
+
+    private void StopWindows()
+    {
+        _winSig = null;
+        if (_winTimer is null) return;
+        _winTimer.Stop();
+        _winTimer.Tick -= OnWindowsTick;
+        _winTimer = null;
+    }
+
+    private void OnWindowsTick(DispatcherQueueTimer sender, object args)
+    {
+        if (!_attached) return;
+        SendWindows(force: false);
+    }
+
+    private void SendWindows(bool force)
+    {
+        var json = RemoteProtocol.BuildWindows(App.Pc.ListWindows());
+        if (!force && json == _winSig) return;
+        _winSig = json;
+        Post(json);
+    }
+
+    // ---- Estado do PC (D27): um timer de 2 s, só com a aba PC aberta; para ao desassinar, ao desligar o grupo e ao desconectar ----
+
+    private void StartInfo()
+    {
+        if (_infoTimer is null)
+        {
+            _info = new PcInfoReader();
+            _infoTimer = _ui.CreateTimer();
+            _infoTimer.Interval = InfoInterval;
+            _infoTimer.IsRepeating = true;
+            _infoTimer.Tick += OnInfoTick;
+            _infoTimer.Start();
+        }
+        SendInfo();
+    }
+
+    private void StopInfo()
+    {
+        if (_infoTimer is null) return;
+        _infoTimer.Stop();
+        _infoTimer.Tick -= OnInfoTick;
+        _infoTimer = null;
+        _info = null;
+    }
+
+    private void OnInfoTick(DispatcherQueueTimer sender, object args)
+    {
+        if (!_attached) return;
+        SendInfo();
+    }
+
+    private void SendInfo()
+    {
+        if (_info is null) return;
+        Post(RemoteProtocol.BuildInfo(_info.Read()));
+    }
+
+    private void ExecuteSleep(SleepCommand cmd)
+    {
+        if (cmd.Seconds > 0)
+        {
+            if (App.TestPc) App.Pc.ScheduleSleep(cmd.Seconds, testSeconds: true); // o seg só vale no --teste-pc (D24)
+        }
+        else if (cmd.Minutes > 0) App.Pc.ScheduleSleep(cmd.Minutes * 60, testSeconds: false);
+        else App.Pc.CancelSleep();
+    }
+
+    /// <summary>Liga ou desliga a cópia da configuração do grupo entrada (D13). Thread da tela.</summary>
+    private void SyncInput()
+    {
+        var s = App.Settings.Current;
+        if (s.CelularLigado && RemoteTools.IsEnabled(s.FerramentasCelular, RemoteTools.Input))
+        {
+            lock (_inLock) _input ??= App.Pc.Actions;
+        }
+        else
+        {
+            DisableInput();
+        }
+    }
+
+    /// <summary>Solta os botões que ficaram apertados e passa a ignorar a entrada.</summary>
+    private void DisableInput()
+    {
+        lock (_inLock)
+        {
+            if (_input is { } a)
+            {
+                try { ReleaseHeld(a); }
+                catch (Exception ex) { Log.Write($"ERRO celular: entrada: {ex.Message}"); }
+            }
+            _input = null;
+            _held = 0;
+        }
+    }
+
+    private void ReleaseHeld(IPcActions a)
+    {
+        foreach (var b in new[] { MouseButton.Left, MouseButton.Right, MouseButton.Middle })
+            if ((_held & (1 << (int)b)) != 0) a.MouseButtonSet(b, false);
+        _held = 0;
+    }
+
+    private void OnPcChanged() => MarkDirty();
+
+    private static bool HasTools() => App.Settings.Current.FerramentasCelular.Count > 0;
 
     /// <summary>Várias mudanças seguidas viram uma mensagem só, no máximo uma a cada 50 ms.</summary>
     private void MarkDirty()
@@ -164,8 +392,14 @@ internal sealed class RemoteSession
         if (!_attached) return;
         try
         {
-            var json = RemoteProtocol.BuildState(BuildState(_hub, App.Settings.Current.Favoritos));
-            _outbox.Writer.TryWrite(json);
+            var tools = App.Settings.Current.FerramentasCelular;
+            var state = BuildState(_hub, App.Settings.Current.Favoritos) with
+            {
+                Tools = tools,
+                TestMode = App.TestPc,
+                Pc = BuildPc(tools, _shortcuts),
+            };
+            PostState(RemoteProtocol.BuildState(state));
         }
         catch (Exception ex)
         {
@@ -214,6 +448,38 @@ internal sealed class RemoteSession
             hub.MasterMuted, apps);
     }
 
+    /// <summary>O <c>pc</c> do estado (Fase 9, D6): só o que existe dos grupos ligados; nulo se nenhum tem o que mostrar. Thread da tela.</summary>
+    private static RemotePcState? BuildPc(IReadOnlyList<string> tools, IReadOnlyList<string>? shortcuts)
+    {
+        var power = RemoteTools.IsEnabled(tools, RemoteTools.Power);
+        var display = RemoteTools.IsEnabled(tools, RemoteTools.Display);
+        var input = RemoteTools.IsEnabled(tools, RemoteTools.Input);
+        var screen = RemoteTools.IsEnabled(tools, RemoteTools.Screen);
+        var infoOn = RemoteTools.IsEnabled(tools, RemoteTools.Info);
+        if (!power && !display && !input && !screen && !infoOn && shortcuts is null) return null;
+        var pc = App.Pc;
+        RemotePower? rp = null;
+        if (power && pc.Plan is { } plan)
+            rp = new RemotePower(PowerRules.Id(plan.Action), plan.DueAt.ToUnixTimeMilliseconds(),
+                (int)Math.Ceiling((plan.DueAt - DateTimeOffset.UtcNow).TotalSeconds));
+        RemoteProjection? pj = null;
+        if (display)
+        {
+            var info = pc.Projection;
+            pj = new RemoteProjection(info.Mode is { } m ? DisplayTopology.Id(m) : null, info.Screens);
+        }
+        List<RemoteScreen>? screens = null;
+        if (screen)
+        {
+            screens = new List<RemoteScreen>();
+            foreach (var m in ScreenCapture.Monitors()) screens.Add(new RemoteScreen(m.Index, m.Width, m.Height, m.Primary));
+        }
+        RemoteSleep? sleep = null;
+        if (infoOn && pc.Sleep is { } sp)
+            sleep = new RemoteSleep(sp.DueAt.ToUnixTimeMilliseconds(), (int)Math.Ceiling((sp.DueAt - DateTimeOffset.UtcNow).TotalSeconds));
+        return new RemotePcState(power, rp, pj, input, input && pc.Awake, screens, shortcuts, infoOn, sleep);
+    }
+
     internal const string MediaKeyPrefix = "midia:";
 
     private static RemoteMedia ToRemote(MediaInfo m, string appName) =>
@@ -239,8 +505,69 @@ internal sealed class RemoteSession
     private void Execute(RemoteCommand command)
     {
         if (!_attached) return;
+        // Fase 9, D6: comando de um grupo desligado é ignorado
+        if (RemoteCommandGroups.GroupOf(command) is { } group && !RemoteTools.IsEnabled(App.Settings.Current.FerramentasCelular, group)) return;
         switch (command)
         {
+            case RefreshCommand:
+                if (RemoteTools.IsEnabled(App.Settings.Current.FerramentasCelular, RemoteTools.Display)) App.Pc.RefreshProjection();
+                RefreshShortcuts();
+                PushState();
+                break;
+            case WindowsCommand:
+                SendWindows(force: true);
+                break;
+            case WindowActionCommand wa:
+                App.Pc.ControlWindow(wa.Id, wa.Action);
+                break;
+            case ShortcutCommand sh:
+                App.Pc.OpenShortcut(sh.Name);
+                break;
+            case SleepCommand sl:
+                ExecuteSleep(sl);
+                break;
+            case ClipReadCommand:
+                {
+                    var (text, cut, failed) = App.Pc.ReadClipboard();
+                    if (failed) { Post(RemoteProtocol.BuildNotice("Não consegui ler a área de transferência do PC")); break; }
+                    Post(RemoteProtocol.BuildClip(text, cut));
+                    if (cut) Post(RemoteProtocol.BuildNotice($"Texto cortado em {ClipboardBridge.MaxChars:N0} caracteres".Replace(',', '.')));
+                    break;
+                }
+            case ClipWriteCommand cw:
+                if (!App.Pc.WriteClipboard(cw.Text)) Post(RemoteProtocol.BuildNotice("Não consegui gravar na área de transferência do PC"));
+                break;
+            case SubscribeCommand sub:
+                if (sub.Group == "janelas")
+                {
+                    if (sub.On) StartWindows();
+                    else StopWindows();
+                }
+                else if (sub.Group == "info")
+                {
+                    if (sub.On) StartInfo();
+                    else StopInfo();
+                }
+                break;
+            case DisconnectCommand:
+                Log.Write("celular: desconectado pelo celular");
+                Finish(RemoteProtocol.BuildDisconnected(), 4000, "desconectado");
+                break;
+            case PowerCommand pw:
+                App.Pc.SchedulePower(pw.Action, pw.Seconds);
+                break;
+            case PowerCancelCommand:
+                App.Pc.CancelPower();
+                break;
+            case ProjectionCommand pj:
+                if (!App.Pc.SetProjection(pj.Mode)) Post(RemoteProtocol.BuildNotice("O Windows recusou a troca de projeção"));
+                break;
+            case ScreensCommand sc:
+                if (sc.Off) App.Pc.ScreensOff(); else App.Pc.ScreensOn();
+                break;
+            case AwakeCommand aw:
+                App.Pc.SetAwake(aw.On);
+                break;
             case VolumeCommand v when HasApp(v.App):
                 _hub.SetVolume(v.App, v.Volume / 100f);
                 break;
@@ -309,6 +636,11 @@ internal sealed class RemoteSession
                 var status = RemoteProtocol.ParseCommand(text, out var command);
                 if (status == ParseStatus.TooLarge) return;
                 if (status != ParseStatus.Ok || command is null) continue; // JSON inválido ou tipo desconhecido: ignorado
+                if (command is InputCommand input)
+                {
+                    RunInput(input); // D13: direto na thread de rede, sem passar pela fila da tela
+                    continue;
+                }
                 var cmd = command;
                 _ui.TryEnqueue(() =>
                 {
@@ -323,14 +655,67 @@ internal sealed class RemoteSession
         catch (Exception ex) { Log.Write($"ERRO celular: {ex.Message}"); }
     }
 
+    /// <summary>
+    /// Entrada do celular (D13 a D15), na thread de rede. Ignorada com o grupo desligado (<c>_input</c> nulo). Nada do que foi
+    /// digitado vai para o log (D12).
+    /// </summary>
+    private void RunInput(InputCommand command)
+    {
+        lock (_inLock)
+        {
+            if (_input is not { } a) return;
+            try
+            {
+                switch (command)
+                {
+                    case MouseMoveCommand m: a.MouseMove(m.Dx, m.Dy); break;
+                    case ClickCommand c: a.MouseClick(c.Button, c.Double); break;
+                    case ButtonCommand b:
+                        a.MouseButtonSet(b.Button, b.Down);
+                        if (b.Down) _held |= 1 << (int)b.Button; else _held &= ~(1 << (int)b.Button);
+                        break;
+                    case ScrollCommand s: a.MouseScroll(s.Dx, s.Dy); break;
+                    case TextCommand t: a.TypeText(t.Text); break;
+                    case KeyCommand k: a.PressKey(k.Key); break;
+                    case MouseAbsCommand ab:
+                        if (ScreenRules.AbsolutePoint(ScreenCapture.Monitors(), ab.Monitor, ab.X, ab.Y) is { } pt) a.MouseAbsolute(pt.X, pt.Y);
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Write($"ERRO celular: entrada: {ex.Message}");
+            }
+        }
+    }
+
     private async Task SendLoopAsync(CancellationToken ct)
     {
         try
         {
-            while (await _outbox.Reader.WaitToReadAsync(ct).ConfigureAwait(false))
+            while (await _signal.Reader.WaitToReadAsync(ct).ConfigureAwait(false))
             {
-                while (_outbox.Reader.TryRead(out var json))
+                _signal.Reader.TryRead(out _);
+                while (true)
                 {
+                    string? json;
+                    (int Code, string Reason)? final = null;
+                    lock (_outLock)
+                    {
+                        if (_queue.Count > 0) json = _queue.Dequeue();
+                        else if (_latestState is not null) { json = _latestState; _latestState = null; }
+                        else { json = null; final = _finalClose; }
+                    }
+                    if (json is null)
+                    {
+                        // Fila vazia: se havia um fechamento pedido, fecha com o código dele (4000, 4001...)
+                        if (final is { } f)
+                        {
+                            await CloseSocketAsync((WebSocketCloseStatus)f.Code, f.Reason).ConfigureAwait(false);
+                            return;
+                        }
+                        break;
+                    }
                     var bytes = Encoding.UTF8.GetBytes(json);
                     await _socket.SendAsync(bytes, WebSocketMessageType.Text, true, ct).ConfigureAwait(false);
                 }

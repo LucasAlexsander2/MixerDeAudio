@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml;
 using MixerDeAudio.Audio;
 using MixerDeAudio.Flyout;
 using MixerDeAudio.Interop;
+using MixerDeAudio.Pc;
 using MixerDeAudio.Remote;
 using MixerDeAudio.Services;
 using MixerDeAudio.Tray;
@@ -27,6 +28,8 @@ public partial class App : Application
     private RemoteServer? _remote;
     private bool _noTrim;
     private bool _hiddenTest;
+    private bool _testPc;
+    private PcController? _pc;
     private bool _exiting;
 
     /// <summary>Fila da thread da tela, para receber a ativação redirecionada (que chega em outra thread).</summary>
@@ -36,6 +39,15 @@ public partial class App : Application
 
     /// <summary>Servidor do celular (Fase 6), para a seção "Controle pelo celular" das Configurações.</summary>
     internal static RemoteServer? Remote => Instance?._remote;
+
+    /// <summary>Modo <c>--teste-pc</c> (Fase 9, D7): as ações do PC só vão para o log.</summary>
+    internal static bool TestPc => Instance?._testPc ?? false;
+
+    /// <summary>Núcleo de áudio compartilhado (Fase 6); o timer de sono (Fase 9c) o adquire só enquanto desce o volume.</summary>
+    internal static AudioHub Hub => Instance!._hub;
+
+    /// <summary>Ações do PC pelo celular (Fase 9). Criado no primeiro uso; só na thread da tela.</summary>
+    internal static PcController Pc => Instance!._pc ??= Instance.CreatePc();
 
     /// <summary>Configuração do usuário em memória (Fase 5, D2); lida uma vez, na partida.</summary>
     public static SettingsStore Settings { get; private set; } = new();
@@ -61,6 +73,8 @@ public partial class App : Application
         var commandLine = CommandLine.Parse(Program.StartupArguments);
         _noTrim = commandLine.NoTrim;
         _hiddenTest = commandLine.HiddenTest;
+        _testPc = commandLine.TestPc;
+        if (_testPc) Log.Write("teste-pc: modo de teste ligado");
         // Modo de teste oculto (Fase 7): sem ícone na bandeja.
         if (!_hiddenTest)
             _tray = new TrayIconService(onToggle: Toggle, onOpen: () => Open(activate: true, atCursor: true, checkGate: false),
@@ -85,7 +99,19 @@ public partial class App : Application
         if (!_hub.IsActive) ScheduleTrim();
     }
 
-    private void OnSettingsChanged() => _remote?.Apply();
+    private void OnSettingsChanged()
+    {
+        _remote?.Apply();
+        _pc?.OnSettingsChanged(Settings.Current.FerramentasCelular, Settings.Current.CelularLigado);
+    }
+
+    private PcController CreatePc()
+    {
+        var pc = new PcController(UiQueue!, _testPc, (title, text) => _tray?.ShowBalloon(title, text));
+        pc.PowerPlanChanged += plan => _tray?.SetCancelItem(plan is null ? null : PowerRules.CancelText(plan.Action), () => RunOnUi(() => _pc?.CancelPower()));
+        pc.OnSettingsChanged(Settings.Current.FerramentasCelular, Settings.Current.CelularLigado);
+        return pc;
+    }
 
     /// <summary>O primeiro dono chegou: cancela o trim pendente e desliga o modo de eficiência (D1).</summary>
     private void OnHubActive()
@@ -251,6 +277,7 @@ public partial class App : Application
             _exiting = true;
             Log.Write("saindo");
             _trimTimer?.Stop();
+            _pc?.Shutdown();
             _remote?.Dispose();
             _flyout?.CloseForReal();
             _flyout = null;

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Microsoft.UI.Dispatching;
 using MixerDeAudio.Services;
 
@@ -274,6 +275,9 @@ internal sealed class AudioHub
 
     /// <summary>Próxima faixa no app com esse AUMID (D5).</summary>
     public void MediaNext(string aumid) => _mediaMonitor?.Execute(aumid, MediaAction.Next);
+
+    /// <summary>Pausa todos os apps de mídia que estão tocando (Fase 9c, D24). Precisa de dono no hub; sem monitor devolve 0.</summary>
+    public Task<int> PauseAllMediaAsync() => _mediaMonitor?.PauseAllAsync() ?? Task.FromResult(0);
 
     // ---- Comandos (D2): gravam e avisam todos os consumidores ----
 

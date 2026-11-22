@@ -97,14 +97,14 @@ $script:players = New-Object System.Collections.ArrayList
 function PrepararFerramentas {
   New-Item -ItemType Directory -Force $script:ferr | Out-Null
   Copy-Item "$PSScriptRoot\tocar.cs" "$script:ferr\tocar-b.cs" -Force
-  foreach ($nome in 'tocar', 'tocar-b', 'sessoes', 'celular') {
+  foreach ($nome in 'tocar', 'tocar-b', 'sessoes', 'celular', 'janela-teste') {
     $fonte = if ($nome -eq 'tocar-b') { "$script:ferr\tocar-b.cs" } else { "$PSScriptRoot\$nome.cs" }
     $dest = "$script:ferr\$nome-bin"
     $exe = "$dest\$nome.exe"
     if ((Test-Path $exe) -and (Get-Item $exe).LastWriteTime -gt (Get-Item $fonte).LastWriteTime) { continue }
     if ($nome -ne 'tocar-b') { Copy-Item $fonte "$script:ferr\$nome.cs" -Force; $fonte = "$script:ferr\$nome.cs" }
     $r = & dotnet publish $fonte -o $dest -v q 2>&1
-    if (-not (Test-Path $exe)) { throw "Falha ao publicar $nome`: $($r | Select-Object -Last 5)" }
+    if (-not (Test-Path $exe) -or (Get-Item $exe).LastWriteTime -lt (Get-Item $fonte).LastWriteTime) { throw "Falha ao publicar $nome`: $($r | Select-Object -Last 5)" }
   }
 }
 
@@ -452,12 +452,13 @@ $script:celularCodigo = '123456'
 
 # Grava no config.json o interruptor ligado e um código conhecido, inicia o app com --celular-local e devolve a porta lida do log
 # (ou $null se o servidor não ligou em 5 s). O app não pode estar rodando.
-function LigarCelularTeste([string]$codigo = '123456') {
+function LigarCelularTeste([string]$codigo = '123456', [string[]]$grupos = @()) {
   $script:celularCodigo = $codigo
   New-Item -ItemType Directory -Force (Split-Path $script:cfgFile) | Out-Null
-  [IO.File]::WriteAllText($script:cfgFile, "{`"Versao`": 1, `"CelularLigado`": true, `"CodigoCelular`": `"$codigo`"}", (New-Object Text.UTF8Encoding $false))
+  $ferr = if ($grupos.Count) { ", `"FerramentasCelular`": [" + (($grupos | ForEach-Object { "`"$_`"" }) -join ", ") + "]" } else { "" }
+  [IO.File]::WriteAllText($script:cfgFile, "{`"Versao`": 1, `"CelularLigado`": true, `"CodigoCelular`": `"$codigo`"$ferr}", (New-Object Text.UTF8Encoding $false))
   Remove-Item "$env:LOCALAPPDATA\MixerDeAudio\logs" -Recurse -Force -ErrorAction SilentlyContinue
-  StartApp @('--celular-local')
+  StartApp @('--celular-local', '--teste-pc')
   $porta = $null
   WaitFor { $script:celularPorta = CelularPorta; $null -ne $script:celularPorta } 5 | Out-Null
   $script:celularPorta
@@ -585,4 +586,145 @@ function MidiaInvoke([IntPtr]$h, [string]$app, [string]$botao) {
   $row = RowElement $h $app; if (-not $row) { throw "linha '$app' nao encontrada" }
   $e = RowChild $row $botao; if (-not $e) { throw "botao '$botao' nao encontrado em '$app'" }
   $e.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
+}
+
+# ---------------- Fase 9: controle do PC pelo celular (modo --teste-pc) ----------------
+# Seguranca (D7, D30): o app so roda com --teste-pc nos roteiros (LigarCelularTeste sempre passa o argumento). Nesse modo toda acao do PC
+# (energia, projecao, telas...) so grava "teste-pc: <acao>" no log; o RealPc nunca e criado. Antes de qualquer comando de ferramenta o roteiro
+# confere a linha "teste-pc: modo de teste ligado" (AssertModoTestePc) e o celular.exe confere "teste":true no estado (recusa sem isso).
+
+# Liga o celular de teste com os grupos de ferramentas dados (ids de RemoteTools) gravados no config.json de teste.
+# Exige BackupConfig antes; o app nao pode estar rodando. Devolve a porta.
+function LigarFerramentas([string[]]$grupos = @(), [string]$codigo = '123456') { LigarCelularTeste $codigo $grupos }
+# Aborta (throw) sem enviar nada se o log nao tiver a linha de modo de teste.
+function AssertModoTestePc {
+  if ((LogCount 'teste-pc: modo de teste ligado') -lt 1) { throw 'ABORTADO: o log nao tem "teste-pc: modo de teste ligado"; nenhum comando de ferramenta foi enviado.' }
+}
+# Linhas "teste-pc: ..." do log que casam com o padrao (regex sobre o texto depois de "teste-pc: "). Devolve Hora (DateTime) e Texto.
+function LogTestePc([string]$padrao = '.') {
+  @(LogLines | ForEach-Object { [regex]::Match($_, '^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d{3}) teste-pc: (.*)$') } |
+    Where-Object { $_.Success -and $_.Groups[2].Value -match $padrao } |
+    ForEach-Object { [pscustomobject]@{ Hora = [datetime]::ParseExact($_.Groups[1].Value, 'yyyy-MM-dd HH:mm:ss.fff', [Globalization.CultureInfo]::InvariantCulture); Texto = $_.Groups[2].Value } })
+}
+# Hora (DateTime) da primeira linha do log que casa com o padrao completo; $null se nao houver.
+function LogHora([string]$padrao, [int]$indice = 0) {
+  $l = @(LogLines | Where-Object { $_ -match $padrao })
+  if ($l.Count -le $indice) { return $null }
+  [datetime]::ParseExact($l[$indice].Substring(0, 23), 'yyyy-MM-dd HH:mm:ss.fff', [Globalization.CultureInfo]::InvariantCulture)
+}
+# Envia um comando de ferramenta (JSON) como o celular de teste. O celular.exe recusa (codigo 3) se o estado nao trouxer "teste":true.
+function CelularFerramenta([int]$porta, [string]$chave, [string]$json) {
+  $arg = $json.Replace([string][char]34, [string][char]92 + [char]34)
+  $antes = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+  try { & (CelularExe) ferramenta $porta $chave $arg 2>$null | Out-Null; $codigo = $LASTEXITCODE } finally { $ErrorActionPreference = $antes }
+  $codigo
+}
+# Conecta como outro celular (outra chave) e devolve as mensagens (Json) e o codigo de fechamento (Codigo, ou $null).
+function CelularSegundo([int]$porta, [string]$chave) {
+  $msgs = @(); $codigo = $null
+  foreach ($l in @(& (CelularExe) segundo $porta $chave)) {
+    if ("$l" -like "MSG`t*") { $msgs += ("$l".Substring(4) | ConvertFrom-Json) }
+    elseif ("$l" -like "FECHOU`t*") { $v = "$l".Substring(7); if ($v -ne '-') { $codigo = [int]$v } }
+  }
+  [pscustomobject]@{ Msgs = $msgs; Codigo = $codigo }
+}
+# Mensagens avulsas (MSG) e fechamento (FECHOU) escritos pelo "segurar" no arquivo.
+function CelularAvulsas([string]$arquivo) {
+  if (-not (Test-Path $arquivo)) { return [pscustomobject]@{ Msgs = @(); Codigo = $null } }
+  $msgs = @(); $codigo = $null
+  foreach ($l in @(Get-Content $arquivo -Encoding utf8 -ErrorAction SilentlyContinue)) {
+    if ("$l" -like "MSG`t*") { try { $msgs += ("$l".Substring(4) | ConvertFrom-Json) } catch {} }
+    elseif ("$l" -like "FECHOU`t*") { $codigo = [int]"$l".Substring(7) }
+  }
+  [pscustomobject]@{ Msgs = $msgs; Codigo = $codigo }
+}
+# Pede quadros de /tela (Fase 9b) como o celular de teste: chave '-' = sem cookie; $n quadros seguidos, com $periodoMs de ritmo fixo (0 = sem pausa).
+# So le o cabecalho e as dimensoes do JPEG: a imagem nunca e gravada em disco. Devolve Quadros (Status, Tipo, Bytes, W, H, Ms, Jpeg) e TotalMs.
+function CelularTela([int]$porta, [string]$chave, [int]$mon, [int]$w, [int]$n = 1, [int]$periodoMs = 0) {
+  $quadros = @(); $total = $null
+  foreach ($l in @(& (CelularExe) tela $porta $chave $mon $w $n $periodoMs)) {
+    $p = "$l" -split "`t"
+    if ($p[0] -eq 'TOTAL') { $total = [int64]$p[1]; continue }
+    if ($p.Count -lt 7) { continue }
+    $d = $p[4] -split 'x'
+    $quadros += [pscustomobject]@{ Status = [int]$p[1]; Tipo = $p[2]; Bytes = [int]$p[3]; W = [int]$d[0]; H = [int]$d[1]; Ms = [int]$p[5]; Jpeg = ($p[6] -eq 'jpeg') }
+  }
+  [pscustomobject]@{ Quadros = $quadros; TotalMs = $total }
+}
+# Como CelularFerramenta, mas devolve tambem as mensagens avulsas (MSG) recebidas logo depois do envio (ex.: a lista de janelas).
+# Devolve Codigo (0 = enviado, 3 = recusado) e Msgs (objetos).
+function CelularFerramentaMsgs([int]$porta, [string]$chave, [string]$json) {
+  $arg = $json.Replace([string][char]34, [string][char]92 + [char]34)
+  $antes = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+  $msgs = @()
+  try {
+    $saida = @(& (CelularExe) ferramenta $porta $chave $arg 2>$null); $codigo = $LASTEXITCODE
+    foreach ($l in $saida) { if ("$l" -like "MSG`t*") { try { $msgs += ("$l".Substring(4) | ConvertFrom-Json) } catch {} } }
+  } finally { $ErrorActionPreference = $antes }
+  [pscustomobject]@{ Codigo = $codigo; Msgs = $msgs }
+}
+
+# ---------------- Fase 9d: arquivo e estado do PC ----------------
+# Envia um arquivo de %TEMP%\mixer-check\ como o celular de teste (POST /arquivo). O celular.exe recusa (codigo 3) sem "teste":true no estado.
+# Devolve Status (HTTP; 0 se deu erro de rede), Corpo (texto da resposta; objeto em Json quando for JSON) e Codigo (3 = recusado).
+function CelularArquivo([int]$porta, [string]$chave, [string]$caminho, [string]$nome = '') {
+  $antes = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+  try {
+    $args2 = @('arquivo', $porta, $chave, $caminho); if ($nome) { $args2 += $nome }
+    $saida = @(& (CelularExe) @args2 2>$null); $codigo = $LASTEXITCODE
+  } finally { $ErrorActionPreference = $antes }
+  $status = 0; $corpo = ''; $json = $null
+  foreach ($l in $saida) {
+    $p = "$l" -split "`t", 2
+    if ($p[0] -match '^\d+$') { $status = [int]$p[0]; $corpo = if ($p.Count -gt 1) { $p[1] } else { '' } }
+  }
+  if ($corpo) { try { $json = $corpo | ConvertFrom-Json } catch {} }
+  [pscustomobject]@{ Status = $status; Corpo = $corpo; Json = $json; Codigo = $codigo }
+}
+# Assina o estado do PC por $segLigado s, cancela e escuta mais $segDepois s (celular.exe info). Devolve Info (mensagens recebidas ligado),
+# Depois (mensagens recebidas depois do off) e Codigo.
+function CelularInfo([int]$porta, [string]$chave, [int]$segLigado, [int]$segDepois) {
+  $antes = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+  $info = @(); $depois = @()
+  try {
+    $saida = @(& (CelularExe) info $porta $chave $segLigado $segDepois 2>$null); $codigo = $LASTEXITCODE
+    foreach ($l in $saida) {
+      if ("$l" -like "INFO`t*") { try { $info += ("$l".Substring(5) | ConvertFrom-Json) } catch {} }
+      elseif ("$l" -like "DEPOIS`t*") { try { $depois += ("$l".Substring(7) | ConvertFrom-Json) } catch {} }
+    }
+  } finally { $ErrorActionPreference = $antes }
+  [pscustomobject]@{ Info = $info; Depois = $depois; Codigo = $codigo }
+}
+
+# ---------------- Fase 9c: janela de teste (janela-teste.cs) ----------------
+# Seguranca (D21, D22, D30): as unicas janelas que o roteiro minimiza ou fecha de verdade sao as da janela-teste.exe (titulo "MX-teste janela",
+# fora de todas as telas, sem ativar, sem barra de tarefas). O processo e guardado em $script:janelaTeste e so ele e encerrado.
+$script:janelaTeste = $null
+# Inicia a janela de teste com o log em $log; espera ate 5 s pela linha "PRONTO <hwnd>". Devolve o processo.
+function StartJanelaTeste([string]$log, [int]$segundos = 300) {
+  $exeJ = "$script:ferr\janela-teste-bin\janela-teste.exe"
+  if (-not (Test-Path $exeJ)) { throw 'janela-teste.exe nao foi publicado (PrepararFerramentas)' }
+  Remove-Item $log -Force -ErrorAction SilentlyContinue
+  $p = Start-Process $exeJ -ArgumentList @('--log', "`"$log`"", '--segundos', "$segundos") -PassThru -WindowStyle Hidden
+  $script:janelaTeste = $p
+  WaitFor { (Test-Path $log) -and @(Get-Content $log -Encoding utf8 -ErrorAction SilentlyContinue | Where-Object { $_ -like 'PRONTO *' }).Count -ge 1 } 5 | Out-Null
+  $p
+}
+function JanelaTesteLog([string]$log) { if (Test-Path $log) { @(Get-Content $log -Encoding utf8 -ErrorAction SilentlyContinue) } else { @() } }
+# Encerra a janela de teste que o roteiro iniciou (nunca outro processo): pede o fim pelo tempo; so mata se ainda estiver viva.
+function StopJanelaTeste {
+  if ($script:janelaTeste) {
+    try { if (-not $script:janelaTeste.HasExited) { $script:janelaTeste.Kill() } } catch {}
+    $script:janelaTeste = $null
+  }
+}
+
+# Liga ou desliga um grupo pelo ToggleSwitch das Configuracoes (AutomationId Tool...); a janela de Configuracoes tem que estar aberta.
+function ToggleFerramenta([IntPtr]$h, [string]$id) {
+  $e = FindById $h $id; if (-not $e) { throw "interruptor '$id' nao encontrado" }
+  $e.GetCurrentPattern([Windows.Automation.TogglePattern]::Pattern).Toggle()
+}
+function FerramentaLigada([IntPtr]$h, [string]$id) {
+  $e = FindById $h $id; if (-not $e) { return $null }
+  $e.GetCurrentPattern([Windows.Automation.TogglePattern]::Pattern).Current.ToggleState -eq [Windows.Automation.ToggleState]::On
 }

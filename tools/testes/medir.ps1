@@ -4,9 +4,11 @@
 # -Ciclos N (padrão 20; Fase 3 usa 50): quantidade de ciclos. Se N > 20, mede também após o ciclo N.
 # -ComServidor (Fase 6): liga o servidor do celular em 127.0.0.1 (--celular-local) e mede como as outras rodadas (janela abre e fecha), sem celular conectado.
 # -ComCelular (Fase 6): igual, mas cada ciclo conecta e desconecta o celular de teste (celular.cs) em vez de abrir e fechar a janela.
+# -TodosGrupos (Fase 9d, caso 9.16): liga os 8 grupos de ferramentas do PC no config.json de teste (o app roda com --teste-pc, so grava no log).
+# -NaoReabrir: no fim nao reabre o app do usuario (para encadear varias rodadas; reabra no fim).
 #   As duas guardam e devolvem o config.json (BackupConfig/RestoreConfig) e nao combinam com -SemAparar.
 # Cada rodada: 10 s parado -> memória; 30 s parado -> CPU média; N ciclos (abrir sem foco, 1 s, fechar, 3 s) -> memória e handles após os ciclos 5, 20 e N.
-param([switch]$SemAparar, [switch]$ComSom, [int]$Ciclos = 20, [switch]$ComServidor, [switch]$ComCelular)
+param([switch]$SemAparar, [switch]$ComSom, [int]$Ciclos = 20, [switch]$ComServidor, [switch]$ComCelular, [switch]$TodosGrupos, [switch]$NaoReabrir)
 . "$PSScriptRoot\lib.ps1"
 $ErrorActionPreference = 'Stop'
 
@@ -21,13 +23,14 @@ $backupFeito = $false; $porta = $null; $chave = ''
 try {
   StopAll
   StopPlayers
-  $label = $(if ($SemAparar) { 'sem-aparar' } else { 'normal' }) + $(if ($ComSom) { '+com-som' } else { '' }) + $(if ($ComCelular) { '+celular' } elseif ($ComServidor) { '+servidor' } else { '' })
+  $label = $(if ($SemAparar) { 'sem-aparar' } else { 'normal' }) + $(if ($ComSom) { '+com-som' } else { '' }) + $(if ($ComCelular) { '+celular' } elseif ($ComServidor) { '+servidor' } else { '' }) + $(if ($TodosGrupos) { '+8grupos' } else { '' })
   if ($ComServidor -or $ComCelular) {
     if ($SemAparar) { throw '-ComServidor e -ComCelular nao combinam com -SemAparar' }
+    $gruposMedir = if ($TodosGrupos) { @('energia', 'monitores', 'entrada', 'tela', 'janelas', 'atalhos', 'transferencia', 'estado') } else { @() }
     PrepararFerramentas
     BackupConfig
     $backupFeito = $true
-    $porta = LigarCelularTeste '123456'
+    $porta = LigarCelularTeste '123456' $gruposMedir
     if (-not $porta) { throw 'o servidor do celular nao ligou' }
     if ($ComCelular) { $chave = (CelularParear $porta '123456').Chave; if (-not $chave) { throw 'o pareamento falhou' } }
   } elseif ($SemAparar) { StartApp @('--sem-aparar') } else { StartApp }
@@ -76,4 +79,5 @@ try {
   StopAll
   if ($backupFeito) { $dif = @(RestoreConfig); "config.json e registro restaurados; diferencas=[$($dif -join '; ')]" }
   "processos restantes: app=$((AppProcs).Count) tocadores=$(PlayersAbertos)"
+  if (-not $NaoReabrir) { ReabrirAppDoUsuario }
 }

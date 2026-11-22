@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using MixerDeAudio.Remote;
 
 namespace MixerDeAudio.Services;
 
@@ -49,6 +50,9 @@ public sealed record AppSettings
 
     /// <summary>Celulares pareados: só o SHA-256 da chave fica aqui, nunca a chave. No máximo <see cref="MaxPhones"/>.</summary>
     public List<PairedPhone> ChavesCelular { get; init; } = new();
+
+    /// <summary>Grupos de ferramentas do PC ligados (Fase 9, D1): ids de <c>RemoteTools</c>. Vazia = tudo desligado.</summary>
+    public List<string> FerramentasCelular { get; init; } = new();
 
     public static AppSettings Default => new();
 
@@ -100,6 +104,7 @@ public sealed record AppSettings
         {
             Versao = CurrentVersion, Favoritos = favs, NomesFavoritos = names, Tema = AppTheme.Normalize(Tema),
             CelularLigado = CelularLigado, CodigoCelular = NormalizeCode(CodigoCelular), ChavesCelular = NormalizePhones(ChavesCelular),
+            FerramentasCelular = RemoteTools.Normalize(FerramentasCelular),
         };
     }
 

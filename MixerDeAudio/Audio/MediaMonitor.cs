@@ -256,6 +256,30 @@ internal sealed class MediaMonitor : IDisposable
         if (!ok) Log.Write($"midia: comando recusado ({NameOf(action)})");
     }
 
+    /// <summary>
+    /// Pausa todos os apps que estão tocando agora (Fase 9c, D24, timer de sono): só <c>TryPauseAsync</c>, nunca play nem alternar.
+    /// Devolve quantos aceitaram a pausa. Os apps que já estavam pausados não são tocados.
+    /// </summary>
+    public async Task<int> PauseAllAsync()
+    {
+        if (_disposed) return 0;
+        var playing = _entries.Values.Where(e => e.Info.IsPlaying).ToList();
+        var paused = 0;
+        foreach (var entry in playing)
+        {
+            if (_disposed) break;
+            try
+            {
+                if (await entry.Session.TryPauseAsync()) paused++;
+            }
+            catch (Exception ex)
+            {
+                Log.Write($"ERRO midia ao pausar: {ex.Message}");
+            }
+        }
+        return paused;
+    }
+
     private static string NameOf(MediaAction action) => action switch
     {
         MediaAction.Previous => "anterior",

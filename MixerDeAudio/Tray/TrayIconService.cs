@@ -17,6 +17,9 @@ internal sealed class TrayIconService : IDisposable
     private readonly TaskbarIcon _icon;
     private readonly Icon _iconImage;
 
+    private readonly MenuFlyout _menu;
+    private MenuFlyoutItem? _cancelItem;
+
     public TrayIconService(Action onToggle, Action onOpen, Action onSettings, Action onExit)
     {
         _iconImage = new Icon(Path.Combine(AppContext.BaseDirectory, "Assets", "MixerDeAudio.ico"));
@@ -24,7 +27,7 @@ internal sealed class TrayIconService : IDisposable
         var open = new MenuFlyoutItem { Text = "Abrir", Command = new ActionCommand(onOpen) };
         var settings = new MenuFlyoutItem { Text = "Configurações", Command = new ActionCommand(onSettings) };
         var exit = new MenuFlyoutItem { Text = "Sair", Command = new ActionCommand(onExit) };
-        var menu = new MenuFlyout();
+        var menu = _menu = new MenuFlyout();
         menu.Items.Add(open);
         menu.Items.Add(settings);
         menu.Items.Add(exit);
@@ -39,6 +42,28 @@ internal sealed class TrayIconService : IDisposable
             LeftClickCommand = new ActionCommand(onToggle),
         };
         _icon.ForceCreate(enablesEfficiencyMode: false);
+    }
+
+    /// <summary>Balão da bandeja (Fase 9, D8). O Windows pode escondê-lo no modo "Não incomodar".</summary>
+    public void ShowBalloon(string title, string text) => _icon.ShowNotification(title, text);
+
+    /// <summary>
+    /// Item "Cancelar ... programado" do menu (Fase 9, D8): aparece enquanto houver timer de energia; <paramref name="text"/> nulo remove.
+    /// </summary>
+    public void SetCancelItem(string? text, Action onCancel)
+    {
+        if (text is null)
+        {
+            if (_cancelItem is not null) _menu.Items.Remove(_cancelItem);
+            _cancelItem = null;
+            return;
+        }
+        if (_cancelItem is null)
+        {
+            _cancelItem = new MenuFlyoutItem { Command = new ActionCommand(onCancel) };
+            _menu.Items.Insert(_menu.Items.Count - 1, _cancelItem); // antes de "Sair"
+        }
+        _cancelItem.Text = text;
     }
 
     /// <summary>Modo de eficiência do Windows (D13): ligado com a janela fechada.</summary>

@@ -40,6 +40,18 @@
     <Compile Include="..\MixerDeAudio\Services\StartupRules.cs" Link="Services\StartupRules.cs" />
     <Compile Include="..\MixerDeAudio\Remote\RemoteRules.cs" Link="Remote\RemoteRules.cs" />
     <Compile Include="..\MixerDeAudio\Remote\RemoteProtocol.cs" Link="Remote\RemoteProtocol.cs" />
+    <Compile Include="..\MixerDeAudio\Remote\RemoteTools.cs" Link="Remote\RemoteTools.cs" />
+    <Compile Include="..\MixerDeAudio\Pc\PowerTimer.cs" Link="Pc\PowerTimer.cs" />
+    <Compile Include="..\MixerDeAudio\Pc\DisplayTopology.cs" Link="Pc\DisplayTopology.cs" />
+    <Compile Include="..\MixerDeAudio\Pc\IPcActions.cs" Link="Pc\IPcActions.cs" />
+    <Compile Include="..\MixerDeAudio\Pc\InputRules.cs" Link="Pc\InputRules.cs" />
+    <Compile Include="..\MixerDeAudio\Pc\ScreenRules.cs" Link="Pc\ScreenRules.cs" />
+    <Compile Include="..\MixerDeAudio\Pc\WindowFilter.cs" Link="Pc\WindowFilter.cs" />
+    <Compile Include="..\MixerDeAudio\Pc\Shortcuts.cs" Link="Pc\Shortcuts.cs" />
+    <Compile Include="..\MixerDeAudio\Pc\SleepTimer.cs" Link="Pc\SleepTimer.cs" />
+    <Compile Include="..\MixerDeAudio\Pc\FileNameRules.cs" Link="Pc\FileNameRules.cs" />
+    <Compile Include="..\MixerDeAudio\Pc\PcInfo.cs" Link="Pc\PcInfo.cs" />
+    <Compile Include="..\MixerDeAudio\Pc\ClipboardBridge.cs" Link="Pc\ClipboardBridge.cs" />
   </ItemGroup>
 
 </Project>

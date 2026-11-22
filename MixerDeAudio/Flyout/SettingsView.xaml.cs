@@ -24,6 +24,10 @@ public sealed partial class SettingsView : UserControl
 
     private void OnNewCodeClick(object sender, RoutedEventArgs e) => Model.NewCode();
 
+    private void OnDisconnectClick(object sender, RoutedEventArgs e) => Model.Disconnect();
+
+    private void OnShortcutsFolderClick(object sender, RoutedEventArgs e) => Model.OpenShortcutsFolder();
+
     private void OnBackClick(object sender, RoutedEventArgs e) => BackRequested?.Invoke();
 
     /// <summary>Solta os ouvintes do modelo ao voltar ou fechar.</summary>

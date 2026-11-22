@@ -153,6 +153,24 @@ public static class RemoteRules
         return n > MaxBodyBytes ? -1 : n;
     }
 
+    // ---- Envio de arquivo (Fase 9d, D26) ----
+
+    /// <summary>O <c>POST /arquivo</c>: o corpo não é lido pela leitura comum (limite de 1 KB), e sim em blocos direto para o disco.</summary>
+    public static bool IsUpload(HttpHead head)
+    {
+        if (head.Method != "POST") return false;
+        var q = head.Path.IndexOf('?');
+        return (q >= 0 ? head.Path.Substring(0, q) : head.Path) == "/arquivo";
+    }
+
+    /// <summary><c>Content-Length</c> do envio: -1 se faltar ou for inválido.</summary>
+    public static long UploadLength(HttpHead head)
+    {
+        var v = head.Header("Content-Length");
+        if (v is null) return -1;
+        return long.TryParse(v.Trim(), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var n) ? n : -1;
+    }
+
     // ---- Cookie e chaves ----
 
     /// <summary>Valor do cookie <paramref name="name"/> no cabeçalho <c>Cookie</c>, ou nulo.</summary>

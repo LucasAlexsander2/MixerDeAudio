@@ -11,6 +11,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.UI.Dispatching;
 using MixerDeAudio.Audio;
+using MixerDeAudio.Pc;
 using MixerDeAudio.Services;
 
 namespace MixerDeAudio.Remote;
@@ -26,7 +27,6 @@ internal sealed class RemoteServer : IDisposable
 {
     public const int FirstPort = 8750;
     public const int LastPort = 8759;
-    public const int MaxPhones = 4;
     private const int MaxOpenRequests = 32;
     private const string PageResource = "MixerDeAudio.Web.index.html";
     private static readonly TimeSpan HeadTimeout = TimeSpan.FromSeconds(10);
@@ -44,6 +44,7 @@ internal sealed class RemoteServer : IDisposable
     private int _openRequests;
     private int _connections;
     private int _nextNumber;
+    private ScreenCapture? _screen; // criada no primeiro pedido de /tela (D17)
 
     public RemoteServer(AudioHub hub, SettingsStore settings, DispatcherQueue ui, bool localOnly)
     {
@@ -124,6 +125,11 @@ internal sealed class RemoteServer : IDisposable
             try { _cts?.Cancel(); } catch (ObjectDisposedException) { }
             try { listener?.Stop(); } catch { }
             CloseAllSessions();
+            lock (_gate)
+            {
+                _screen?.Dispose();
+                _screen = null;
+            }
             _cts?.Dispose();
             _cts = null;
             if (listener is not null) Log.Write("celular: servidor desligado");
@@ -223,6 +229,13 @@ internal sealed class RemoteServer : IDisposable
                     return;
                 }
 
+                if (RemoteRules.IsUpload(head))
+                {
+                    // Fase 9d, D26: o corpo é lido em blocos direto para o disco, com prazo de 30 s sem dados (não os 10 s da leitura comum)
+                    await ServeUploadAsync(stream, head, q >= 0 ? head.Path.Substring(q + 1) : null, body, serverCt).ConfigureAwait(false);
+                    return;
+                }
+
                 using var cts = CancellationTokenSource.CreateLinkedTokenSource(serverCt);
                 cts.CancelAfter(HeadTimeout);
                 var ct = cts.Token;
@@ -230,6 +243,8 @@ internal sealed class RemoteServer : IDisposable
                     await ServePageAsync(stream, ct).ConfigureAwait(false);
                 else if (head.Method == "POST" && path == "/parear")
                     await PairAsync(stream, head, body, remote, ct).ConfigureAwait(false);
+                else if (head.Method == "GET" && path == "/tela")
+                    await ServeScreenAsync(stream, head, q >= 0 ? head.Path.Substring(q + 1) : null, ct).ConfigureAwait(false);
                 else if (head.Method == "GET" && path.StartsWith("/icone/", StringComparison.Ordinal))
                     await ServeIconAsync(stream, head, path.Substring("/icone/".Length), ct).ConfigureAwait(false);
                 else
@@ -250,7 +265,10 @@ internal sealed class RemoteServer : IDisposable
 
     private readonly record struct RequestRead(int Status, HttpHead? Head, byte[] Body);
 
-    /// <summary>Lê o cabeçalho (máx. 8 KB) e o corpo (máx. 1 KB). Status 0 = ok; positivo = responder com ele; negativo = só fechar.</summary>
+    /// <summary>
+    /// Lê o cabeçalho (máx. 8 KB) e o corpo (máx. 1 KB). Status 0 = ok; positivo = responder com ele; negativo = só fechar.
+    /// No <c>POST /arquivo</c> (D26) o corpo não é lido: <c>Body</c> traz só os bytes que já vieram junto do cabeçalho.
+    /// </summary>
     private static async Task<RequestRead> ReadRequestAsync(NetworkStream stream, CancellationToken ct)
     {
         var buffer = new byte[RemoteRules.MaxHeadBytes];
@@ -266,6 +284,7 @@ internal sealed class RemoteServer : IDisposable
         }
         var head = RemoteRules.ParseHead(Encoding.Latin1.GetString(buffer, 0, end));
         if (head is null) return new RequestRead(400, null, Array.Empty<byte>());
+        if (RemoteRules.IsUpload(head)) return new RequestRead(0, head, buffer.AsSpan(end, total - end).ToArray());
         var length = RemoteRules.BodyLength(head);
         if (length < 0) return new RequestRead(413, null, Array.Empty<byte>());
         var body = new byte[length];
@@ -288,10 +307,13 @@ internal sealed class RemoteServer : IDisposable
         401 => "Unauthorized",
         403 => "Forbidden",
         404 => "Not Found",
+        409 => "Conflict",
+        411 => "Length Required",
         413 => "Payload Too Large",
         429 => "Too Many Requests",
         431 => "Request Header Fields Too Large",
         503 => "Service Unavailable",
+        507 => "Insufficient Storage",
         _ => "Error",
     };
 
@@ -419,6 +441,8 @@ internal sealed class RemoteServer : IDisposable
                     if (m.Key is null && RemoteProtocol.IconId(RemoteSession.MediaKeyPrefix + m.Aumid) == id) return _hub.MediaIconKey(m.Aumid);
                 return null;
             }).ConfigureAwait(false);
+            // Fase 9c, D21: ícone de uma janela da última lista enviada ao celular (o mapa só existe com o grupo janelas ligado)
+            exe ??= WindowList.IconPathFor(id);
         }
         var png = exe is null ? Array.Empty<byte>() : await AppIconCache.GetPngAsync(exe).ConfigureAwait(false);
         if (png.Length == 0)
@@ -427,6 +451,133 @@ internal sealed class RemoteServer : IDisposable
             return;
         }
         await WriteAsync(stream, 200, "image/png", png, new[] { "Cache-Control: private, max-age=3600" }, ct).ConfigureAwait(false);
+    }
+
+    // ---- GET /tela?mon=<i>&w=<largura> (Fase 9b, D17 a D20) ----
+
+    /// <summary>
+    /// Um quadro JPEG da tela. 401 sem cookie válido; 409 se a chave não é a do celular conectado agora; 403 com o grupo
+    /// "tela" desligado; 503 se a captura falhou (tela bloqueada, por exemplo).
+    /// </summary>
+    private async Task ServeScreenAsync(NetworkStream stream, HttpHead head, string? query, CancellationToken ct)
+    {
+        const string text = "text/plain; charset=utf-8";
+        var phone = Authenticate(head);
+        if (phone is null)
+        {
+            await WriteAsync(stream, 401, text, Array.Empty<byte>(), null, ct).ConfigureAwait(false);
+            return;
+        }
+        string? connected;
+        lock (_gate) connected = _sessions.Count > 0 ? _sessions[0].KeyHash : null;
+        if (!string.Equals(connected, phone.Hash, StringComparison.Ordinal))
+        {
+            await WriteAsync(stream, 409, text, Array.Empty<byte>(), null, ct).ConfigureAwait(false);
+            return;
+        }
+        var cfg = _settings.Current;
+        if (!cfg.CelularLigado || !RemoteTools.IsEnabled(cfg.FerramentasCelular, RemoteTools.Screen))
+        {
+            await WriteAsync(stream, 403, text, Array.Empty<byte>(), null, ct).ConfigureAwait(false);
+            return;
+        }
+        ScreenCapture capture;
+        lock (_gate) capture = _screen ??= new ScreenCapture();
+        var (mon, width) = ScreenRules.ParseQuery(query);
+        byte[]? jpeg = null;
+        try { jpeg = await capture.CaptureJpegAsync(mon, width, ct).ConfigureAwait(false); }
+        catch (Exception ex) when (ex is not OperationCanceledException and not ObjectDisposedException)
+        {
+            Log.Write($"ERRO celular: tela: {ex.Message}");
+        }
+        if (jpeg is null || jpeg.Length == 0)
+        {
+            await WriteAsync(stream, 503, text, Array.Empty<byte>(), null, ct).ConfigureAwait(false);
+            return;
+        }
+        await WriteAsync(stream, 200, "image/jpeg", jpeg, null, ct).ConfigureAwait(false);
+    }
+
+    // ---- POST /arquivo?nome=<nome> (Fase 9d, D20 e D26) ----
+
+    /// <summary>
+    /// Recebe um arquivo do celular. Ordem: 401 (sem cookie válido), 409 (a chave não é a do celular conectado agora), 403 (grupo
+    /// desligado ou <c>Origin</c> diferente do <c>Host</c>), 411/400 (sem <c>Content-Length</c> ou vazio), 413 (acima do limite),
+    /// 409 (já há um envio) e 507 (sem espaço). Resposta de erro não lê o corpo: o que o celular ainda manda é descartado (até 16 MB).
+    /// </summary>
+    private async Task ServeUploadAsync(NetworkStream stream, HttpHead head, string? query, byte[] prefetched, CancellationToken serverCt)
+    {
+        const string json = "application/json; charset=utf-8";
+        const string fail = "{\"ok\":false}";
+        var length = RemoteRules.UploadLength(head);
+
+        async Task Reply(int status, string text)
+        {
+            using var c = CancellationTokenSource.CreateLinkedTokenSource(serverCt);
+            c.CancelAfter(HeadTimeout);
+            await WriteAsync(stream, status, json, Encoding.UTF8.GetBytes(text), null, c.Token).ConfigureAwait(false);
+            if (status != 200) await DrainAsync(stream, length - prefetched.Length, serverCt).ConfigureAwait(false);
+        }
+
+        var phone = Authenticate(head);
+        if (phone is null) { await Reply(401, fail).ConfigureAwait(false); return; }
+        string? connected;
+        lock (_gate) connected = _sessions.Count > 0 ? _sessions[0].KeyHash : null;
+        if (!string.Equals(connected, phone.Hash, StringComparison.Ordinal)) { await Reply(409, fail).ConfigureAwait(false); return; }
+        var cfg = _settings.Current;
+        var origin = head.Header("Origin");
+        if (!cfg.CelularLigado || !RemoteTools.IsEnabled(cfg.FerramentasCelular, RemoteTools.Transfer)
+            || (origin is not null && !RemoteRules.OriginMatchesHost(origin, head.Header("Host"))))
+        {
+            await Reply(403, fail).ConfigureAwait(false);
+            return;
+        }
+        if (length < 0) { await Reply(411, fail).ConfigureAwait(false); return; }
+        if (length == 0) { await Reply(400, fail).ConfigureAwait(false); return; }
+
+        var receiver = await OnUi(() => App.Pc.Files).ConfigureAwait(false);
+        var result = await receiver.ReceiveAsync(stream, prefetched, length, FileNameRules.NameFromQuery(query), serverCt).ConfigureAwait(false);
+        if (result.Status == 0) return; // o celular desistiu ou ficou 30 s sem mandar nada: não há quem responda
+        if (result.Status != 200)
+        {
+            Log.Write($"celular: arquivo recusado ({result.Status})");
+            await Reply(result.Status, fail).ConfigureAwait(false);
+            return;
+        }
+        Log.Write($"celular: arquivo recebido ({result.Bytes} bytes)");
+        var name = result.Name ?? "";
+        await OnUi(() => { App.Pc.Balloon($"Arquivo recebido: {name}", "Arquivo recebido"); return true; }).ConfigureAwait(false);
+        using var ms = new MemoryStream();
+        using (var w = new Utf8JsonWriter(ms, new JsonWriterOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }))
+        {
+            w.WriteStartObject();
+            w.WriteBoolean("ok", true);
+            w.WriteString("nome", name);
+            w.WriteNumber("bytes", result.Bytes);
+            w.WriteEndObject();
+        }
+        await Reply(200, Encoding.UTF8.GetString(ms.GetBuffer(), 0, (int)ms.Length)).ConfigureAwait(false);
+    }
+
+    /// <summary>Descarta o que o celular ainda manda depois de uma resposta de erro (até 16 MB, 3 s sem dados), para o navegador ler a resposta.</summary>
+    private static async Task DrainAsync(NetworkStream stream, long remaining, CancellationToken serverCt)
+    {
+        const long MaxDrain = 16L * 1024 * 1024;
+        if (remaining <= 0) return;
+        var left = Math.Min(remaining, MaxDrain);
+        var buffer = new byte[16 * 1024];
+        try
+        {
+            using var idle = CancellationTokenSource.CreateLinkedTokenSource(serverCt);
+            while (left > 0)
+            {
+                idle.CancelAfter(TimeSpan.FromSeconds(3));
+                var n = await stream.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, left)), idle.Token).ConfigureAwait(false);
+                if (n == 0) break;
+                left -= n;
+            }
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or IOException or SocketException or ObjectDisposedException) { }
     }
 
     // ---- GET /ws (D5, D6, D10) ----
@@ -453,13 +604,6 @@ internal sealed class RemoteServer : IDisposable
             await WriteAsync(stream, 403, text, Array.Empty<byte>(), null, ct).ConfigureAwait(false);
             return;
         }
-        if (Interlocked.Increment(ref _connections) > MaxPhones)
-        {
-            Interlocked.Decrement(ref _connections);
-            await WriteAsync(stream, 503, text, Array.Empty<byte>(), null, ct).ConfigureAwait(false);
-            return;
-        }
-
         RemoteSession? session = null;
         var total = 0;
         try
@@ -476,9 +620,42 @@ internal sealed class RemoteServer : IDisposable
                 IsServer = true,
                 KeepAliveInterval = TimeSpan.FromSeconds(20),
             });
-            var number = Interlocked.Increment(ref _nextNumber);
-            session = new RemoteSession(this, _hub, socket, _ui, number) { KeyHash = phone.Hash };
-            lock (_gate) _sessions.Add(session);
+            // Fase 9, D3: um celular por vez, decidido dentro do lock. A recusa vem depois do upgrade (o navegador não lê
+            // o status HTTP de um WebSocket recusado): a página recebe "ocupado" e o código 4009.
+            RemoteSession? replaced = null;
+            string? busyName = null;
+            lock (_gate)
+            {
+                var current = _sessions.Count > 0 ? _sessions[0] : null;
+                switch (SingleSessionPolicy.Decide(current is null ? null : current.KeyHash ?? "", phone.Hash))
+                {
+                    case SessionDecision.Accept:
+                    case SessionDecision.Replace:
+                        if (current is not null) { replaced = current; _sessions.Remove(current); }
+                        session = new RemoteSession(this, _hub, socket, _ui, Interlocked.Increment(ref _nextNumber))
+                        {
+                            KeyHash = phone.Hash,
+                            PhoneName = phone.Nome,
+                        };
+                        _sessions.Add(session);
+                        break;
+                    default:
+                        busyName = current!.PhoneName;
+                        break;
+                }
+                Volatile.Write(ref _connections, _sessions.Count);
+            }
+            if (session is null)
+            {
+                Log.Write("celular: outro celular recusado (ocupado)");
+                await RefuseAsync(socket, busyName ?? "").ConfigureAwait(false);
+                return;
+            }
+            if (replaced is not null)
+            {
+                Log.Write("celular: conexao antiga substituida (mesma chave)");
+                replaced.Finish(RemoteProtocol.BuildDisconnected(), 4001, "substituida");
+            }
             total = ConnectionCount;
             Log.Write($"celular conectado ({total} no total)");
             ConnectionsChanged?.Invoke();
@@ -487,14 +664,68 @@ internal sealed class RemoteServer : IDisposable
         }
         finally
         {
-            if (session is not null) lock (_gate) _sessions.Remove(session);
-            var left = Interlocked.Decrement(ref _connections);
             if (session is not null)
             {
-                Log.Write($"celular desconectado ({left})");
-                ConnectionsChanged?.Invoke();
+                bool removed;
+                int left;
+                lock (_gate)
+                {
+                    removed = _sessions.Remove(session);
+                    left = _sessions.Count;
+                    Volatile.Write(ref _connections, left);
+                }
+                if (removed)
+                {
+                    Log.Write($"celular desconectado ({left})");
+                    ConnectionsChanged?.Invoke();
+                }
             }
         }
+    }
+
+    /// <summary>Manda "ocupado" e fecha com 4009; espera um instante o fecho do celular para a mensagem chegar inteira.</summary>
+    private static async Task RefuseAsync(WebSocket socket, string name)
+    {
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            var bytes = Encoding.UTF8.GetBytes(RemoteProtocol.BuildBusy(name));
+            await socket.SendAsync(bytes, WebSocketMessageType.Text, true, cts.Token).ConfigureAwait(false);
+            await socket.CloseOutputAsync((WebSocketCloseStatus)4009, "ocupado", cts.Token).ConfigureAwait(false);
+            var buffer = new byte[256];
+            while (socket.State is WebSocketState.CloseSent or WebSocketState.Open)
+            {
+                var r = await socket.ReceiveAsync(buffer, cts.Token).ConfigureAwait(false);
+                if (r.MessageType == WebSocketMessageType.Close) break;
+            }
+        }
+        catch
+        {
+            // o celular já saiu
+        }
+        finally
+        {
+            socket.Dispose();
+        }
+    }
+
+    /// <summary>Nome do celular conectado agora, ou nulo se não há nenhum.</summary>
+    public string? ConnectedPhoneName
+    {
+        get
+        {
+            lock (_gate) return _sessions.Count > 0 ? _sessions[0].PhoneName : null;
+        }
+    }
+
+    /// <summary>"Desconectar" (D4): manda "desconectado" e fecha com 4000. A chave continua pareada. Qualquer thread.</summary>
+    public void DisconnectAll()
+    {
+        RemoteSession[] all;
+        lock (_gate) all = _sessions.ToArray();
+        if (all.Length == 0) return;
+        Log.Write("celular: desconectado pelo PC");
+        foreach (var s in all) s.Finish(RemoteProtocol.BuildDisconnected(), 4000, "desconectado");
     }
 
     /// <summary>Atualiza o "último uso" do celular na configuração. Thread da tela.</summary>

@@ -48,7 +48,7 @@ App de bandeja para o Windows 11. Um clique no ícone abre uma janelinha (~420 p
 | 6 | Controle pelo celular na rede de casa (página servida pelo próprio app, token) | concluída (teste do usuário aprovado em 21/11/2026) |
 | 7 | Controles de música por app (anterior, play/pausa, próxima) na janela e no celular | concluída (teste do usuário aprovado em 21/11/2026) |
 | 8 | Polimento visual, otimização final (trimming/AOT) e instalador | concluída (aprovada pelo usuário em 21/11/2026) |
-| 9 | Controle do PC pelo celular (A12), em partes | — |
+| 9 | Controle do PC pelo celular (A12), em partes (9a a 9d) | concluída (teste do usuário aprovado em 22/11/2026) |
 
 As pendências que os documentos das fases 1 a 5 marcam para a "Fase 6" passaram para a **Fase 8**, depois das renumerações de 20/11/2026 e 21/11/2026: handles, bytes privados, trimming/AOT, Mica ou Acrylic, altura adaptável e roda do mouse nos sliders.
 - **Memória por abertura (medida em 20/11/2026):** cerca de 0,15 MB de bytes privados e 3 handles a mais a cada abertura da janela, igual nas Fases 4 e 5 (150 ciclos: +21 MB). Fica para a Fase 8, comparando com reaproveitar uma janela escondida.

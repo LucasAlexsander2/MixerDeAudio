@@ -1,6 +1,6 @@
 # Estado do projeto
 
-**Fase atual:** Fases 1 a 8 concluídas (Fase 8, polimento, otimização e instalador: aprovada em 21/11/2026). Próxima: Fase 9 (controle do PC pelo celular, decisão A12). Detalhes em `docs/fases/fase-1.md` a `fase-8.md`; plano em `docs/PLANO.md`.
+**Fase atual:** Fases 1 a 9 concluídas. **Fase 9 (controle do PC pelo celular, decisão A12) concluída em quatro partes (9a a 9d), teste do usuário aprovado em 22/11/2026** (roteiro e desvios em `docs/fases/fase-9.md`). Detalhes em `docs/fases/fase-1.md` a `fase-9.md`; plano em `docs/PLANO.md`.
 
 ## Comandos
 
@@ -29,6 +29,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\testes\roteiro-f3.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\testes\roteiro-f4.ps1   # -SemMedicao pula o 4.6
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\testes\roteiro-f5.ps1   # -SemMedicao pula o 5.9; guarda e devolve config.json e o registro de iniciar com o Windows
 
+# Fase 9: roteiro por parte (a, b, c, d); o app sempre com --teste-oculto --celular-local --teste-pc
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\testes\roteiro-f9.ps1 -Parte a   # b tem -SemMedicao; c e d sao curtas
+# Medicao da Fase 9 (caso 9.16): servidor com os 8 grupos ligados, sem celular e com celular (50 conexoes)
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\testes\medir.ps1 -ComServidor -TodosGrupos
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\testes\medir.ps1 -ComCelular -TodosGrupos -Ciclos 50
+
 # Regerar o ícone
 dotnet run tools\icone\gerar-icone.cs
 ```
@@ -36,6 +42,8 @@ dotnet run tools\icone\gerar-icone.cs
 ## Linha de comando do app
 
 `MixerDeAudio.exe` sem argumento: abre (segunda cópia) ou só cria o ícone (primeira cópia). `--abrir`, `--abrir-sem-foco` (roteiros), `--fechar`, `--sair`, `--sem-aparar` (desliga a devolução de memória, para medição). Fase 5: `--configuracoes` e `--configuracoes-sem-foco` (roteiros) abrem já na página de configurações (o menu da bandeja tem o item "Configurações").
+
+Fase 9: `--teste-pc` (modo de teste do controle do PC: nenhuma ação é feita no PC de verdade, tudo só vai para o log como `teste-pc: ...`; a área de transferência fica em memória, os arquivos recebidos vão para `%TEMP%\mixer-check\recebidos` com limite de 5 MB e os atalhos para `%TEMP%\mixer-check\atalhos`; o `RealPc` nunca é criado) e `--celular-local` (o servidor só escuta em 127.0.0.1). Só os roteiros usam; o app normal nunca recebe `--teste-pc`.
 
 ## Roteiro da Fase 1
 

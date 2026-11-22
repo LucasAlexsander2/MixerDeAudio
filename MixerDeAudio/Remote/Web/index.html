@@ -50,6 +50,45 @@ input[type=range]{flex:1;min-width:0;height:44px;margin:0;accent-color:var(--acc
 .media button:disabled{opacity:.4}
 .mt{flex:1;min-width:0;margin-left:4px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .lbl{color:var(--dim);font-size:13px;margin:4px 0 2px}
+body.hastabs{padding-bottom:calc(88px + env(safe-area-inset-bottom))}
+#tabs{position:fixed;left:0;right:0;bottom:0;display:flex;background:var(--card);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom);z-index:6}
+#tabs button{flex:1 1 0;min-width:0;padding:0 2px;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-radius:0;background:transparent;min-height:56px;font-weight:600;color:var(--dim)}
+#tabs button.on{background:transparent;color:var(--accent);box-shadow:inset 0 3px 0 var(--accent)}
+h2{font-size:16px;margin:16px 0 8px}
+.dim{color:var(--dim)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.grid button{min-height:56px;font-weight:600}
+.grid button:disabled{opacity:.4}
+select{font:inherit;width:100%;min-height:44px;margin-bottom:8px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--fg);padding:0 8px}
+.plan{text-align:center}
+.cd{font:600 26px/1.3 ui-monospace,Consolas,monospace;margin:4px 0 8px}
+#dlg{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:20;padding:16px}
+#dlg .box{background:var(--card);border-radius:12px;padding:16px;max-width:420px;width:100%}
+#dlg .row{display:flex;gap:8px;margin-top:16px}
+#dlg .row button{flex:1;min-height:48px;font-weight:600}
+#toast{position:fixed;left:16px;right:16px;bottom:calc(96px + env(safe-area-inset-bottom));background:var(--fg);color:var(--bg);padding:12px;border-radius:8px;z-index:30;text-align:center}
+.wide{width:100%;margin-top:12px}
+#pad{height:34vh;min-height:180px;border:2px dashed var(--line);border-radius:12px;background:var(--card);touch-action:none;user-select:none;-webkit-user-select:none;display:flex;align-items:center;justify-content:center;color:var(--dim);text-align:center;padding:8px}
+.row3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px}
+.keys{display:grid;grid-template-columns:repeat(auto-fill,minmax(76px,1fr));gap:6px}
+.keys button{font-size:14px;padding:0 4px}
+textarea{font:inherit;width:100%;min-height:110px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--fg);padding:8px 10px;margin-bottom:4px;resize:vertical}
+progress{width:100%;height:14px;margin-top:8px;accent-color:var(--accent)}
+#infoBox div{display:flex;justify-content:space-between;gap:8px;padding:3px 0}
+#infoBox span:first-child{color:var(--dim)}
+.txtrow{display:flex;gap:8px}
+.txtrow input{flex:1;min-width:0;font:inherit;min-height:44px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--fg);padding:0 10px}
+.txtrow button{flex:none}
+#tlBox{position:relative;margin-top:12px;line-height:0}
+#tlImg{width:100%;height:auto;border-radius:8px;border:1px solid var(--line);background:#000}
+#tlDot{position:absolute;width:14px;height:14px;margin:-7px 0 0 -7px;border-radius:50%;background:var(--accent);border:2px solid #fff;pointer-events:none}
+.chk{display:flex;align-items:center;gap:8px;min-height:44px}
+.chk input{width:22px;height:22px}
+.win .sub{color:var(--dim);font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.win .info{flex:1;min-width:0}
+.win.min{opacity:.7}
+.list{display:flex;flex-direction:column;gap:8px}
+.list button{min-height:52px;text-align:left;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 </style>
 </head>
 <body>
@@ -73,7 +112,146 @@ input[type=range]{flex:1;min-width:0;height:44px;margin:0;accent-color:var(--acc
   </div>
   <div id="apps"></div>
   <p id="empty" hidden>Nenhum app com som no momento.</p>
+  <button id="bye" class="wide">Desconectar</button>
 </main>
+
+<main id="pc" hidden>
+  <h1>PC</h1>
+  <section id="secPower" hidden>
+    <h2>Energia</h2>
+    <div class="card plan" id="pwPlan" hidden>
+      <div id="pwTxt" class="cd"></div>
+      <button id="pwCancel" class="wide">Cancelar</button>
+    </div>
+    <label class="lbl" for="pwSel">Quando</label>
+    <select id="pwSel">
+      <option value="0">Agora</option><option value="60">Em 1 min</option><option value="300">Em 5 min</option>
+      <option value="600">Em 10 min</option><option value="900">Em 15 min</option><option value="1800">Em 30 min</option>
+      <option value="2700">Em 45 min</option><option value="3600">Em 1 h</option><option value="5400">Em 1 h 30 min</option>
+      <option value="7200">Em 2 h</option><option value="10800">Em 3 h</option><option value="14400">Em 4 h</option>
+      <option value="28800">Em 8 h</option><option value="43200">Em 12 h</option><option value="86400">Em 24 h</option>
+    </select>
+    <div class="grid">
+      <button data-pw="desligar">Desligar</button><button data-pw="reiniciar">Reiniciar</button>
+      <button data-pw="suspender">Suspender</button><button data-pw="bloquear">Bloquear</button>
+    </div>
+  </section>
+  <section id="secDisp" hidden>
+    <h2>Monitores</h2>
+    <div class="grid" id="projBtns"></div>
+    <p class="dim" id="projInfo"></p>
+    <div class="grid">
+      <button id="scOff">Apagar as telas</button><button id="scOn">Acordar as telas</button>
+    </div>
+  </section>
+  <section id="secSleep" hidden>
+    <h2>Timer de sono</h2>
+    <div class="card plan" id="slPlan" hidden>
+      <div id="slTxt" class="cd"></div>
+      <button id="slCancel" class="wide">Cancelar</button>
+    </div>
+    <label class="lbl" for="slSel">Parar a música em</label>
+    <select id="slSel">
+      <option value="5">5 min</option><option value="10">10 min</option><option value="15">15 min</option>
+      <option value="30" selected>30 min</option><option value="45">45 min</option><option value="60">1 h</option>
+      <option value="90">1 h 30 min</option><option value="120">2 h</option><option value="180">3 h</option><option value="240">4 h</option>
+    </select>
+    <button id="slGo" class="wide on">Programar</button>
+    <p class="dim">Nos últimos 30 segundos o volume desce até zero, a música pausa e o volume volta ao que era.</p>
+  </section>
+  <section id="secInfo" hidden>
+    <h2>Estado do PC</h2>
+    <div class="card" id="infoBox"><div><span>Lendo…</span></div></div>
+  </section>
+</main>
+
+<main id="tf" hidden>
+  <h1>Enviar</h1>
+  <h2>Área de transferência</h2>
+  <textarea id="clip" maxlength="4000" aria-label="Texto da área de transferência" placeholder="Texto"></textarea>
+  <div class="row3"><button id="clipRead">Ler do PC</button><button id="clipCopy">Copiar</button><button id="clipSend" class="on">Enviar ao PC</button></div>
+  <h2>Arquivo para o PC</h2>
+  <input type="file" id="fileIn" aria-label="Escolher o arquivo">
+  <button id="fileGo" class="wide on" disabled>Enviar arquivo</button>
+  <progress id="fileBar" max="100" value="0" hidden></progress>
+  <p id="fileMsg" role="status" class="dim"></p>
+</main>
+
+<main id="jn" hidden>
+  <h1>Janelas</h1>
+  <section id="secWin" hidden>
+    <h2>Abertas</h2>
+    <div id="winList" class="list"></div>
+    <p id="winEmpty" class="dim" hidden>Nenhuma janela aberta.</p>
+  </section>
+  <section id="secSc" hidden>
+    <h2>Atalhos</h2>
+    <div id="scList" class="list"></div>
+    <p id="scEmpty" class="dim" hidden>Nenhum atalho. Ponha atalhos (.lnk ou .url) na pasta de atalhos do PC: Configurações, "Abrir pasta de atalhos".</p>
+  </section>
+</main>
+
+<main id="ctl" hidden>
+  <h1>Controle</h1>
+  <div id="pad" aria-label="Touchpad">Toque e arraste aqui. 1 dedo move, toque clica, 2 dedos rolam, segurar e mover arrasta.</div>
+  <div class="row3"><button id="bL">Clique</button><button id="b2">Duplo</button><button id="bR">Direito</button></div>
+  <label class="lbl" for="sens">Sensibilidade do touchpad</label>
+  <select id="sens"><option value="1">Baixa</option><option value="1.6">Média</option><option value="2.6">Alta</option></select>
+  <h2>Texto</h2>
+  <div class="txtrow"><input id="txt" type="text" maxlength="1000" autocomplete="off" autocapitalize="off" aria-label="Texto para digitar no PC" placeholder="Digitar no PC"><button id="txtGo">Enviar</button></div>
+  <h2>Apresentação</h2>
+  <div class="keys" id="kSlides"></div>
+  <h2>Vídeo</h2>
+  <div class="keys" id="kVideo"></div>
+  <h2>Mídia</h2>
+  <div class="keys" id="kMedia"></div>
+  <button id="awake" class="wide" aria-pressed="false">Manter a tela ligada</button>
+  <p class="dim" id="awakeInfo">Desliga sozinho em 4 horas.</p>
+  <h2>Teclas</h2>
+  <div class="keys" id="kKeys"></div>
+</main>
+
+<main id="tl" hidden>
+  <h1>Tela</h1>
+  <p class="dim" id="tlHint">A imagem só é enviada depois que você tocar em "Mostrar a tela" e para ao tocar em "Parar", sair desta aba ou bloquear o celular.</p>
+  <button id="telaIniciar" class="wide on">Mostrar a tela</button>
+  <div id="tlView" hidden>
+    <select id="tlMon" aria-label="Tela" hidden></select>
+    <label class="chk"><input type="checkbox" id="tlEco">Econômica (menos dados)</label>
+    <button id="telaParar" class="wide">Parar</button>
+    <div id="tlBox"><img id="tlImg" alt="Tela do PC"><span id="tlDot" hidden></span></div>
+    <div class="row3" id="tlClk"><button id="tlC1">Clique</button><button id="tlC2">Duplo</button><button id="tlC3">Direito</button></div>
+    <p class="dim" id="tlTap">Toque na imagem para levar o mouse até lá; depois use os botões.</p>
+  </div>
+  <p id="tlMsg" role="status"></p>
+</main>
+
+<main id="busy" hidden>
+  <h1>Mixer de Áudio</h1>
+  <p id="busyMsg"></p>
+  <p class="dim">Tentando de novo a cada 5 segundos…</p>
+</main>
+
+<main id="gone" hidden>
+  <h1>Desconectado</h1>
+  <p id="goneMsg"></p>
+  <button id="again" class="wide on">Conectar</button>
+</main>
+
+<nav id="tabs" hidden>
+  <button data-tab="som" class="on">Som</button>
+  <button data-tab="pc" hidden>PC</button>
+  <button data-tab="jn" hidden>Janelas</button>
+  <button data-tab="ctl" hidden>Controle</button>
+  <button data-tab="tl" hidden>Tela</button>
+  <button data-tab="tf" hidden>Enviar</button>
+</nav>
+
+<div id="dlg" role="dialog" aria-modal="true" hidden>
+  <div class="box"><p id="dq"></p>
+    <div class="row"><button id="dno">Cancelar</button><button id="dyes" class="on">Confirmar</button></div></div>
+</div>
+<div id="toast" role="status" hidden></div>
 
 <script>
 (function(){
@@ -82,12 +260,32 @@ var $=function(i){return document.getElementById(i)};
 var G={'':'🎧','':'🔊','':'🖥️'};
 var S=null, ws=null, opened=false, timer=null, screen='', hold={}, last={}, pend={}, rows={}, sig={};
 
+var tab='som', tabsOn=false, gone=false, busyOn=false;
 function show(which){
   screen=which;
   $('pair').hidden=which!=='pair';
-  $('mixer').hidden=which!=='mixer';
-  if(which==='pair'){$('banner').hidden=true;}
+  $('busy').hidden=which!=='busy';
+  $('gone').hidden=which!=='gone';
+  view();
+  if(which==='pair'||which==='busy'||which==='gone'){$('banner').hidden=true;}
 }
+/* abas: só aparecem com algum grupo de ferramentas ligado */
+function view(){
+  var m=screen==='mixer';
+  $('mixer').hidden=!(m&&tab==='som');
+  $('pc').hidden=!(m&&tab==='pc');
+  $('ctl').hidden=!(m&&tab==='ctl');
+  $('tl').hidden=!(m&&tab==='tl');
+  $('jn').hidden=!(m&&tab==='jn');
+  $('tf').hidden=!(m&&tab==='tf');
+  winSync();infoSync();
+  $('tabs').hidden=!(m&&tabsOn);
+  document.body.classList.toggle('hastabs',m&&tabsOn);
+  /* a tela só é transmitida com a aba aberta (D18) */
+  if(!(m&&tab==='tl'))telaStop();
+  if(!(m&&tab==='ctl'))padReset();
+}
+function toast(t){var e=$('toast');e.textContent=t;e.hidden=false;clearTimeout(toast.t);toast.t=setTimeout(function(){e.hidden=true;},4000);}
 function banner(on,text){var b=$('banner');b.hidden=!on;if(text)b.textContent=text;}
 
 /* ---------- conexão ---------- */
@@ -101,11 +299,24 @@ function connect(){
   s.onopen=function(){opened=true;banner(false);};
   s.onmessage=function(e){
     var m;try{m=JSON.parse(e.data);}catch(x){return;}
-    if(m&&m.t==='estado'){S=m;if(screen!=='mixer')show('mixer');banner(false);render(m);}
+    if(!m)return;
+    if(m.t==='estado'){busyOn=false;S=m;if(screen!=='mixer')show('mixer');banner(false);render(m);renderPc(m);}
+    else if(m.t==='ocupado'){busyOn=true;$('busyMsg').textContent='Outro celular está no controle'+(m.por?' ('+m.por+')':'')+'. Desconecte-o pelo PC ou por ele.';show('busy');}
+    else if(m.t==='desconectado'){gone=true;}
+    else if(m.t==='aviso'){toast(m.msg);}
+    else if(m.t==='janelas'){renderWins(m.lista||[]);}
+    else if(m.t==='clip'){$('clip').value=m.s||'';if(!m.s)toast('A área de transferência do PC está sem texto');}
+    else if(m.t==='info'){renderInfo(m);}
   };
-  s.onclose=function(){
+  s.onclose=function(e){
     if(ws!==s)return;
-    ws=null;
+    ws=null;telaStop();padReset();winSub=false;infoSub=false;
+    if(gone||e.code===4000||e.code===4001){
+      gone=true;
+      $('goneMsg').textContent=e.code===4001?'Esta página foi substituída por outra conexão deste celular.':'Este celular foi desconectado do PC.';
+      show('gone');return;
+    }
+    if(busyOn||e.code===4009){busyOn=true;if(screen!=='busy')show('busy');retry(5000);return;}
     if(opened){banner(true,'Reconectando…');retry();return;}
     /* nunca abriu: servidor fora do ar ou cookie recusado */
     fetch('/',{cache:'no-store'}).then(function(r){
@@ -114,10 +325,13 @@ function connect(){
   };
 }
 function failed(){if(screen!=='pair')banner(true,'Reconectando…');retry();}
-function retry(){if(timer)return;timer=setTimeout(function(){timer=null;connect();},2000);}
+function retry(ms){if(timer)return;timer=setTimeout(function(){timer=null;connect();},ms||2000);}
 document.addEventListener('visibilitychange',function(){
-  if(document.visibilityState==='visible'&&screen==='mixer'&&!(ws&&ws.readyState===1)){clearTimeout(timer);timer=null;connect();}
+  if(document.visibilityState==='hidden'){telaStop();padReset();}
+  if(document.visibilityState==='visible'&&(screen==='mixer'||screen==='busy')&&!(ws&&ws.readyState===1)){clearTimeout(timer);timer=null;connect();}
 });
+$('again').onclick=function(){gone=false;busyOn=false;banner(true,'Conectando…');connect();};
+$('bye').onclick=function(){send({t:'desconectar'});};
 function send(o){if(ws&&ws.readyState===1)ws.send(JSON.stringify(o));}
 
 /* ---------- pareamento ---------- */
@@ -239,6 +453,314 @@ function makeRow(a){
 }
 bindSlider($('ms'),'g',$('mv'),function(v){return{t:'geral',v:v};});
 $('mm').onclick=function(){send({t:'geralMudo',m:!$('mm').classList.contains('muted')});};
+
+/* ---------- aba PC: energia e monitores ---------- */
+var ask_ok=null, plan=null, tick=null;
+var NOME={desligar:'Desligar',reiniciar:'Reiniciar',suspender:'Suspender',bloquear:'Bloquear'};
+var VERBO={desligar:'Desligar o PC',reiniciar:'Reiniciar o PC',suspender:'Suspender o PC (depois de suspenso, não dá para acordá-lo pelo celular)'};
+var MODOS=[['principal','Só a tela do PC'],['segunda','Só a segunda tela'],['estender','Estender'],['duplicar','Duplicar']];
+function ask(q,fn){ask_ok=fn;$('dq').textContent=q;$('dlg').hidden=false;}
+$('dno').onclick=function(){ask_ok=null;$('dlg').hidden=true;};
+$('dyes').onclick=function(){var f=ask_ok;ask_ok=null;$('dlg').hidden=true;if(f)f();};
+function dur(n){var h=Math.floor(n/3600),mi=Math.floor(n%3600/60),s=n%60;function p(x){return x<10?'0'+x:''+x;}return (h?h+':'+p(mi):mi)+':'+p(s);}
+function updPlan(){
+  if(!plan){$('pwPlan').hidden=true;clearInterval(tick);tick=null;return;}
+  var left=Math.max(0,Math.round((plan.at-Date.now())/1000));
+  $('pwTxt').textContent=NOME[plan.acao]+' em '+dur(left);
+  $('pwPlan').hidden=false;
+}
+Array.prototype.forEach.call(document.querySelectorAll('[data-pw]'),function(b){b.onclick=function(){
+  var a=b.getAttribute('data-pw'),sel=$('pwSel'),seg=+sel.value;
+  if(a==='bloquear'){send({t:'energia',acao:a,seg:seg});return;}
+  ask(VERBO[a]+(seg?' '+sel.options[sel.selectedIndex].textContent.toLowerCase():' agora')+'?',function(){send({t:'energia',acao:a,seg:seg});});
+};});
+$('pwCancel').onclick=function(){send({t:'energiaCancelar'});};
+MODOS.forEach(function(d){
+  var b=el('button','',d[1]);b.setAttribute('data-m',d[0]);
+  b.onclick=function(){send({t:'projecao',modo:d[0]});setTimeout(function(){send({t:'atualizar'});},1500);};
+  $('projBtns').appendChild(b);
+});
+$('scOff').onclick=function(){send({t:'telas',acao:'apagar'});};
+$('scOn').onclick=function(){send({t:'telas',acao:'acordar'});};
+Array.prototype.forEach.call($('tabs').children,function(b){b.onclick=function(){tab=b.getAttribute('data-tab');tabBtn();view();send({t:'atualizar'});};});
+window.addEventListener('pagehide',function(){telaStop();});
+function tabBtn(){Array.prototype.forEach.call($('tabs').children,function(b){b.classList.toggle('on',b.getAttribute('data-tab')===tab);});}
+function renderPc(s){
+  var f=s.ferr||{},pc=s.pc||{};
+  var avail={pc:!!(f.energia||f.monitores||f.estado),ctl:!!f.entrada,tl:!!f.tela,jn:!!(f.janelas||f.atalhos),tf:!!f.transferencia};
+  Array.prototype.forEach.call($('tabs').children,function(b){var k=b.getAttribute('data-tab');b.hidden=k!=='som'&&!avail[k];});
+  tabsOn=avail.pc||avail.ctl||avail.tl||avail.jn||avail.tf;
+  if(tab!=='som'&&!avail[tab])tab='som';
+  inputOn=!!f.entrada;jnOn=!!f.janelas;infoOn=!!f.estado;
+  tabBtn();view();
+  $('secPower').hidden=!f.energia;
+  $('secDisp').hidden=!f.monitores;
+  $('secSleep').hidden=!f.estado;
+  $('secInfo').hidden=!f.estado;
+  $('secWin').hidden=!f.janelas;
+  $('secSc').hidden=!f.atalhos;
+  var sl=pc.sono;
+  if(f.estado&&sl){slPlan={at:Date.now()+(sl.rest||0)*1000};if(!slTick)slTick=setInterval(updSleep,1000);}
+  else slPlan=null;
+  updSleep();
+  if(f.atalhos)renderShortcuts(pc.atalhos||[]);
+  var e=pc.energia;
+  if(f.energia&&e){plan={acao:e.acao,at:Date.now()+(e.rest||0)*1000};if(!tick)tick=setInterval(updPlan,1000);}
+  else plan=null;
+  updPlan();
+  var pj=pc.projecao||{},ok=pj.telas>=2;
+  Array.prototype.forEach.call($('projBtns').children,function(b){b.disabled=!ok;b.classList.toggle('on',b.getAttribute('data-m')===pj.modo);b.setAttribute('aria-pressed',b.getAttribute('data-m')===pj.modo);});
+  $('projInfo').textContent=ok?pj.telas+' telas ligadas ao PC.':'Só há uma tela ligada ao PC.';
+  awakeOn=!!pc.acordado;
+  $('awake').classList.toggle('on',awakeOn);$('awake').setAttribute('aria-pressed',awakeOn);
+  $('awake').textContent=awakeOn?'Tela ligada: tocar para desligar':'Manter a tela ligada';
+  $('tlClk').hidden=$('tlTap').hidden=!inputOn;
+  renderMons(pc.monitores||[]);
+}
+
+/* ---------- estado do PC (Fase 9d, D27): só é pedido com a aba PC aberta ---------- */
+var infoOn=false, infoSub=false;
+function infoSync(){
+  var want=screen==='mixer'&&tab==='pc'&&infoOn;
+  if(want===infoSub)return;
+  infoSub=want;
+  send({t:'assinar',g:'info',on:want});
+}
+function gb(n){return (n/1073741824).toFixed(1).replace('.',',')+' GB';}
+function renderInfo(m){
+  var up=m.ligado||0,d=Math.floor(up/86400),h=Math.floor(up%86400/3600),mi=Math.floor(up%3600/60);
+  var mem=m.mem||{},dk=m.disco||{},b=m.bateria;
+  var rows=[['CPU',(m.cpu||0)+'%'],
+    ['Memória',gb(mem.usada||0)+' de '+gb(mem.total||0)],
+    ['Ligado há',(d?d+' d ':'')+h+' h '+mi+' min'],
+    ['Bateria',b?b.pct+'%'+(b.carregando?' (carregando)':''):'Sem bateria'],
+    ['Disco do Windows',gb(dk.livre||0)+' livres de '+gb(dk.total||0)]];
+  var box=$('infoBox');box.textContent='';
+  rows.forEach(function(r){var d1=el('div'),a=el('span'),c=el('span');a.textContent=r[0];c.textContent=r[1];d1.appendChild(a);d1.appendChild(c);box.appendChild(d1);});
+}
+
+/* ---------- aba Enviar: área de transferência e arquivo (Fase 9d, D25 e D26) ---------- */
+$('clipRead').onclick=function(){send({t:'clipLer'});};
+$('clipSend').onclick=function(){
+  var v=$('clip').value;
+  if(v.length>4000){toast('Máximo de 4.000 caracteres por envio');return;}
+  send({t:'clipGravar',s:v});toast('Enviado ao PC');
+};
+$('clipCopy').onclick=function(){
+  var t=$('clip'),ok=false;t.focus();t.select();
+  try{t.setSelectionRange(0,t.value.length);ok=document.execCommand('copy');}catch(e){}
+  toast(ok?'Copiado no celular':'Texto selecionado: copie à mão');
+};
+var fileXhr=null,FERR={401:'Pareamento recusado.',403:'O envio de arquivos está desligado no PC.',409:'Outro envio em andamento ou este celular não está no controle.',
+  411:'O navegador não informou o tamanho.',413:'Arquivo grande demais (máximo 500 MB).',507:'Sem espaço livre no PC.'};
+function mb(n){return n>=1048576?(n/1048576).toFixed(1).replace('.',',')+' MB':Math.max(1,Math.round(n/1024))+' KB';}
+$('fileIn').onchange=function(){
+  var f=this.files[0];$('fileGo').disabled=!f||!!fileXhr;
+  $('fileMsg').textContent=f?f.name+' ('+mb(f.size)+')':'';
+};
+$('fileGo').onclick=function(){
+  var f=$('fileIn').files[0];if(!f||fileXhr)return;
+  if(f.size>524288000){$('fileMsg').textContent=FERR[413];return;}
+  var x=new XMLHttpRequest();fileXhr=x;
+  function end(msg,ok){fileXhr=null;$('fileBar').hidden=true;$('fileMsg').textContent=msg;if(ok)$('fileIn').value='';$('fileGo').disabled=!$('fileIn').files[0];}
+  x.open('POST','/arquivo?nome='+encodeURIComponent(f.name));
+  x.upload.onprogress=function(e){if(e.lengthComputable){$('fileBar').hidden=false;$('fileBar').value=Math.round(e.loaded*100/e.total);}};
+  x.onload=function(){
+    var r={};try{r=JSON.parse(x.responseText);}catch(e){}
+    if(x.status===200)end('Enviado: '+(r.nome||f.name),true);else end(FERR[x.status]||'Falha ao enviar ('+x.status+').');
+  };
+  x.onerror=x.ontimeout=x.onabort=function(){end('A conexão caiu durante o envio.');};
+  $('fileGo').disabled=true;$('fileMsg').textContent='Enviando…';
+  x.send(f);
+};
+
+/* ---------- timer de sono (Fase 9c, D24) ---------- */
+var slPlan=null, slTick=null;
+function updSleep(){
+  if(!slPlan){$('slPlan').hidden=true;clearInterval(slTick);slTick=null;return;}
+  var left=Math.max(0,Math.round((slPlan.at-Date.now())/1000));
+  $('slTxt').textContent='A música para em '+dur(left);
+  $('slPlan').hidden=false;
+}
+$('slGo').onclick=function(){send({t:'sono',min:+$('slSel').value});};
+$('slCancel').onclick=function(){send({t:'sono',min:0});};
+
+/* ---------- aba Janelas e atalhos (Fase 9c, D21 a D23): a lista só é pedida com a aba aberta ---------- */
+var jnOn=false, winSub=false, winSig='', scSig='';
+function winSync(){
+  var want=screen==='mixer'&&tab==='jn'&&jnOn;
+  if(want===winSub)return;
+  winSub=want;winSig='';
+  send({t:'assinar',g:'janelas',on:want});
+}
+function winAct(id,acao){send({t:'janela',id:id,acao:acao});setTimeout(function(){send({t:'janelas'});},900);}
+function renderWins(list){
+  var sg=JSON.stringify(list);
+  if(sg===winSig)return;
+  winSig=sg;
+  var box=$('winList');box.textContent='';
+  $('winEmpty').hidden=list.length>0;
+  list.forEach(function(w){
+    var c=el('div','card win'+(w.min?' min':'')),top=el('div','top'),info=el('div','info');
+    var ico=el('span','ico',(w.proc||w.titulo||'?').charAt(0).toUpperCase());
+    if(w.icone){
+      var img=new Image();img.alt='';img.width=img.height=32;img.className='ico';
+      img.onerror=function(){img.replaceWith(ico);};
+      img.src='/icone/'+encodeURIComponent(w.icone);
+      top.appendChild(img);
+    }else top.appendChild(ico);
+    info.append(el('div','name',w.titulo),el('div','sub',(w.proc||'')+(w.min?' · minimizada':'')));
+    top.appendChild(info);
+    var row=el('div','row3'),b1=el('button','','Frente'),b2=el('button','','Minimizar'),b3=el('button','','Fechar');
+    b1.onclick=function(){winAct(w.id,'frente');};
+    b2.onclick=function(){winAct(w.id,'minimizar');};
+    b3.onclick=function(){ask('Fechar "'+w.titulo+'"? O programa pode perguntar se você quer salvar.',function(){winAct(w.id,'fechar');});};
+    row.append(b1,b2,b3);
+    c.append(top,row);box.appendChild(c);
+  });
+}
+function renderShortcuts(list){
+  var sg=JSON.stringify(list);
+  if(sg===scSig)return;
+  scSig=sg;
+  var box=$('scList');box.textContent='';
+  $('scEmpty').hidden=list.length>0;
+  list.forEach(function(n){
+    var b=el('button','',n);
+    b.onclick=function(){send({t:'atalho',nome:n});toast('Abrindo '+n+'…');};
+    box.appendChild(b);
+  });
+}
+
+/* ---------- aba Controle: touchpad, texto, teclas e apresentação (Fase 9b) ---------- */
+var inputOn=false, awakeOn=false, sens=1.6;
+try{var sv=+localStorage.getItem('mxSens');if(sv>0)sens=sv;}catch(e){}
+$('sens').value=String(sens);
+if($('sens').value!==String(sens))$('sens').value='1.6';
+$('sens').onchange=function(){sens=+this.value||1.6;try{localStorage.setItem('mxSens',this.value);}catch(e){}};
+var pad=$('pad'),P={},pn=0,tp={t0:0,moved:0,max:0,drag:false,hold:0,iv:0,ax:0,ay:0,sx:0,sy:0};
+function padFlush(){
+  var dx=Math.round(tp.ax),dy=Math.round(tp.ay);
+  if(dx||dy){send({t:'mouse',dx:dx,dy:dy});tp.ax-=dx;tp.ay-=dy;}
+  var wx=Math.trunc(tp.sx/24),wy=Math.trunc(tp.sy/24);
+  if(wx||wy){send({t:'rolar',dx:wx,dy:wy});tp.sx-=wx*24;tp.sy-=wy*24;}
+}
+function padReset(){
+  if(!pn&&!tp.drag)return;
+  clearTimeout(tp.hold);clearInterval(tp.iv);
+  if(tp.drag)send({t:'botao',b:'esq',baixo:false});
+  P={};pn=0;tp.drag=false;
+}
+pad.addEventListener('contextmenu',function(e){e.preventDefault();});
+pad.addEventListener('pointerdown',function(e){
+  e.preventDefault();
+  try{pad.setPointerCapture(e.pointerId);}catch(x){}
+  P[e.pointerId]={x:e.clientX,y:e.clientY};pn=Object.keys(P).length;
+  if(pn===1){
+    tp.t0=Date.now();tp.moved=0;tp.max=1;tp.drag=false;tp.ax=tp.ay=tp.sx=tp.sy=0;
+    tp.hold=setTimeout(function(){if(pn===1&&tp.moved<10){tp.drag=true;send({t:'botao',b:'esq',baixo:true});if(navigator.vibrate)navigator.vibrate(20);}},450);
+    tp.iv=setInterval(padFlush,30);
+  }else{tp.max=Math.max(tp.max,pn);clearTimeout(tp.hold);}
+});
+pad.addEventListener('pointermove',function(e){
+  var p=P[e.pointerId];if(!p)return;
+  var dx=e.clientX-p.x,dy=e.clientY-p.y;p.x=e.clientX;p.y=e.clientY;
+  tp.moved+=Math.abs(dx)+Math.abs(dy);
+  if(pn===1){if(tp.max<2){tp.ax+=dx*sens;tp.ay+=dy*sens;}}
+  else{tp.sx-=dx/pn;tp.sy+=dy/pn;}
+});
+function padEnd(e){
+  if(!P[e.pointerId])return;
+  delete P[e.pointerId];pn=Object.keys(P).length;
+  if(pn>0)return;
+  clearTimeout(tp.hold);clearInterval(tp.iv);padFlush();
+  if(tp.drag)send({t:'botao',b:'esq',baixo:false});
+  else if(e.type==='pointerup'&&tp.moved<10&&Date.now()-tp.t0<350)send({t:'clique',b:tp.max>=2?'dir':'esq'});
+  tp.drag=false;
+}
+pad.addEventListener('pointerup',padEnd);
+pad.addEventListener('pointercancel',padEnd);
+$('bL').onclick=function(){send({t:'clique',b:'esq'});};
+$('b2').onclick=function(){send({t:'clique',b:'esq',duplo:true});};
+$('bR').onclick=function(){send({t:'clique',b:'dir'});};
+$('txtGo').onclick=function(){var v=$('txt').value;if(!v)return;send({t:'texto',s:v});$('txt').value='';};
+$('txt').addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();$('txtGo').click();}});
+function keyBtns(box,list){
+  list.forEach(function(d){
+    var b=el('button','',d[0]);
+    b.onclick=function(){
+      if(d[1]==='alt+f4'){ask('Fechar a janela da frente (Alt+F4)?',function(){send({t:'tecla',k:d[1]});});return;}
+      send({t:'tecla',k:d[1]});
+    };
+    $(box).appendChild(b);
+  });
+}
+keyBtns('kSlides',[['◀ Anterior','left'],['Próximo ▶','right'],['Começar (F5)','f5'],['Do slide atual','shift+f5'],['Tela preta (B)','b'],['Sair (Esc)','esc']]);
+keyBtns('kVideo',[['⏯ Espaço','space'],['⏪ Voltar','left'],['⏩ Avançar','right'],['Vol +','up'],['Vol −','down'],['Tela cheia (F)','f'],['Mudo (M)','m']]);
+keyBtns('kMedia',[['⏮','prev'],['⏯','play'],['⏭','next'],['Vol −','voldown'],['Vol +','volup'],['🔇','mute']]);
+keyBtns('kKeys',[['Enter','enter'],['⌫','backspace'],['Tab','tab'],['Esc','esc'],['Espaço','space'],['Del','delete'],['Home','home'],['End','end'],['PgUp','pgup'],['PgDn','pgdn'],
+  ['←','left'],['↑','up'],['↓','down'],['→','right'],['Win','win'],['Alt+Tab','alt+tab'],['Ctrl+C','ctrl+c'],['Ctrl+V','ctrl+v'],['Ctrl+X','ctrl+x'],['Ctrl+Z','ctrl+z'],
+  ['Ctrl+A','ctrl+a'],['Ctrl+S','ctrl+s'],['Ctrl+F','ctrl+f'],['Ctrl+W','ctrl+w'],['Ctrl+T','ctrl+t'],['Alt+F4','alt+f4'],['Win+D','win+d'],['Tarefas','ctrl+shift+esc'],
+  ['F1','f1'],['F2','f2'],['F3','f3'],['F4','f4'],['F5','f5'],['F6','f6'],['F7','f7'],['F8','f8'],['F9','f9'],['F10','f10'],['F11','f11'],['F12','f12']]);
+$('awake').onclick=function(){send({t:'acordado',on:!awakeOn});};
+
+/* ---------- aba Tela: só transmite depois de tocar em "Mostrar a tela" (D18) ---------- */
+var sc={on:false,url:null,timer:0,ctl:null,mons:''};
+function tlUi(){$('telaIniciar').hidden=sc.on;$('tlView').hidden=!sc.on;}
+function telaStop(msg){
+  if(!sc.on&&!msg)return;
+  sc.on=false;clearTimeout(sc.timer);
+  if(sc.ctl){try{sc.ctl.abort();}catch(e){}sc.ctl=null;}
+  $('tlImg').removeAttribute('src');$('tlDot').hidden=true;
+  if(sc.url){URL.revokeObjectURL(sc.url);sc.url=null;}
+  $('tlMsg').textContent=msg||'';
+  tlUi();
+}
+function telaNext(){
+  if(!sc.on)return;
+  var mon=+$('tlMon').value||0,w=Math.min(1280,Math.round(Math.min(window.innerWidth,560)*(window.devicePixelRatio||1)));
+  sc.ctl=window.AbortController?new AbortController():null;
+  fetch('/tela?mon='+mon+'&w='+w,{cache:'no-store',signal:sc.ctl?sc.ctl.signal:undefined}).then(function(r){
+    if(!r.ok)throw r.status;return r.blob();
+  }).then(function(b){
+    if(!sc.on)return;
+    var u=URL.createObjectURL(b),im=$('tlImg');
+    im.onload=function(){
+      im.onload=null;
+      if(!sc.on){URL.revokeObjectURL(u);return;}
+      if(sc.url)URL.revokeObjectURL(sc.url);
+      sc.url=u;sc.timer=setTimeout(telaNext,$('tlEco').checked?1500:500);
+    };
+    im.onerror=function(){URL.revokeObjectURL(u);telaStop('Tela indisponível.');};
+    im.src=u;
+  }).catch(function(e){
+    if(!sc.on)return;
+    telaStop(e===409?'Outro celular está no controle.':e===403?'A tela não está liberada no PC.':'Tela indisponível.');
+  });
+}
+$('telaIniciar').onclick=function(){if(sc.on)return;sc.on=true;$('tlMsg').textContent='';tlUi();telaNext();};
+$('telaParar').onclick=function(){telaStop();};
+$('tlImg').addEventListener('click',function(e){
+  if(!inputOn)return;
+  var r=this.getBoundingClientRect();if(!r.width||!r.height)return;
+  var x=Math.min(1,Math.max(0,(e.clientX-r.left)/r.width)),y=Math.min(1,Math.max(0,(e.clientY-r.top)/r.height));
+  send({t:'mouseAbs',mon:+$('tlMon').value||0,x:x,y:y});
+  var d=$('tlDot');d.style.left=(x*100)+'%';d.style.top=(y*100)+'%';d.hidden=false;
+});
+$('tlC1').onclick=function(){send({t:'clique',b:'esq'});};
+$('tlC2').onclick=function(){send({t:'clique',b:'esq',duplo:true});};
+$('tlC3').onclick=function(){send({t:'clique',b:'dir'});};
+function renderMons(list){
+  var sg=JSON.stringify(list);
+  if(sc.mons===sg)return;
+  sc.mons=sg;
+  var sel=$('tlMon'),cur=sel.value;sel.textContent='';
+  list.forEach(function(m){
+    var o=el('option','','Tela '+(m.i+1)+(m.principal?' (principal)':'')+' · '+m.w+'×'+m.h);o.value=m.i;sel.appendChild(o);
+  });
+  if(cur&&sel.querySelector('option[value="'+cur+'"]'))sel.value=cur;
+  sel.hidden=list.length<2;
+}
 
 /* ---------- partida ---------- */
 var m=/^#c=(\d{6})$/.exec(location.hash);
