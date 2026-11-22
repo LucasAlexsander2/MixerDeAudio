@@ -88,7 +88,11 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
         _startup = StartupRegistration.IsEnabled();
         RebuildFavorites();
         _devices.Changed += OnDevicesChanged;
-        if (_remote is not null) _remote.ConnectionsChanged += OnConnectionsChanged;
+        if (_remote is not null)
+        {
+            _remote.ConnectionsChanged += OnConnectionsChanged;
+            _remote.StateChanged += OnRemoteStateChanged;
+        }
         RefreshRemote();
     }
 
@@ -222,7 +226,9 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
         UpdateCount();
         if (!_remote.IsRunning || string.IsNullOrEmpty(settings.CodigoCelular))
         {
-            RemoteAddress = "Servidor não iniciou (sem porta livre de 8750 a 8759)";
+            RemoteAddress = _remote.IsStarting
+                ? "Ligando o servidor… (esperando a porta ficar livre)"
+                : "Servidor não iniciou (sem porta livre de 8750 a 8759)";
             _qrUrl = null;
             RemoteQr = null;
             return;
@@ -322,6 +328,8 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
     // Vem de qualquer thread (rede)
     private void OnConnectionsChanged() => _ui?.TryEnqueue(() => { if (!_disposed) UpdateCount(); });
 
+    private void OnRemoteStateChanged() => _ui?.TryEnqueue(() => { if (!_disposed) RefreshRemote(); });
+
     /// <summary>IPv4 da placa que tem gateway padrão (D17); sem nenhuma, o endereço local.</summary>
     internal static string LocalAddress()
     {
@@ -350,6 +358,10 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
     {
         _disposed = true;
         _devices.Changed -= OnDevicesChanged;
-        if (_remote is not null) _remote.ConnectionsChanged -= OnConnectionsChanged;
+        if (_remote is not null)
+        {
+            _remote.ConnectionsChanged -= OnConnectionsChanged;
+            _remote.StateChanged -= OnRemoteStateChanged;
+        }
     }
 }

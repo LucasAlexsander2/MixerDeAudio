@@ -638,18 +638,37 @@ function CelularAvulsas([string]$arquivo) {
   }
   [pscustomobject]@{ Msgs = $msgs; Codigo = $codigo }
 }
-# Pede quadros de /tela (Fase 9b) como o celular de teste: chave '-' = sem cookie; $n quadros seguidos, com $periodoMs de ritmo fixo (0 = sem pausa).
-# So le o cabecalho e as dimensoes do JPEG: a imagem nunca e gravada em disco. Devolve Quadros (Status, Tipo, Bytes, W, H, Ms, Jpeg) e TotalMs.
-function CelularTela([int]$porta, [string]$chave, [int]$mon, [int]$w, [int]$n = 1, [int]$periodoMs = 0) {
-  $quadros = @(); $total = $null
-  foreach ($l in @(& (CelularExe) tela $porta $chave $mon $w $n $periodoMs)) {
+# Fase 10: canal /tela/ws como o celular de teste. $passos = "q:mon:w:segundos:ok|semok;..." no MESMO canal (ver celular.cs). Chave '-' = sem cookie.
+# So le o cabecalho e as dimensoes do JPEG: a imagem nunca e gravada em disco. Devolve Passos (I, Q, Quadros, Bytes, W, H, Seg, Jpeg), Fechou (codigo ou $null),
+# Recusado (texto ou $null), Fim ($true se terminou) e Codigo (saida do celular.exe).
+function CelularTelaLer($linhas, $codigo) {
+  $passos = @(); $fechou = $null; $recusado = $null; $fim = $false
+  foreach ($l in @($linhas)) {
     $p = "$l" -split "`t"
-    if ($p[0] -eq 'TOTAL') { $total = [int64]$p[1]; continue }
-    if ($p.Count -lt 7) { continue }
-    $d = $p[4] -split 'x'
-    $quadros += [pscustomobject]@{ Status = [int]$p[1]; Tipo = $p[2]; Bytes = [int]$p[3]; W = [int]$d[0]; H = [int]$d[1]; Ms = [int]$p[5]; Jpeg = ($p[6] -eq 'jpeg') }
+    if ($p[0] -eq 'PASSO' -and $p.Count -ge 8) {
+      $d = $p[5] -split 'x'
+      $passos += [pscustomobject]@{ I = [int]$p[1]; Q = $p[2]; Quadros = [int]$p[3]; Bytes = [int]$p[4]; W = [int]$d[0]; H = [int]$d[1]; Seg = [double]::Parse($p[6], [Globalization.CultureInfo]::InvariantCulture); Jpeg = ($p[7] -eq 'jpeg') }
+    }
+    elseif ($p[0] -eq 'FECHOU') { $fechou = [int]$p[1] }
+    elseif ($p[0] -eq 'RECUSADO') { $recusado = ($p[1..($p.Count - 1)] -join ' ') }
+    elseif ($p[0] -eq 'FIM') { $fim = $true }
   }
-  [pscustomobject]@{ Quadros = $quadros; TotalMs = $total }
+  [pscustomobject]@{ Passos = $passos; Fechou = $fechou; Recusado = $recusado; Fim = $fim; Codigo = $codigo }
+}
+function CelularTela([int]$porta, [string]$chave, [string]$passos) {
+  $antes = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+  try { $saida = @(& (CelularExe) tela $porta $chave $passos 2>$null); $codigo = $LASTEXITCODE } finally { $ErrorActionPreference = $antes }
+  CelularTelaLer $saida $codigo
+}
+# O mesmo em segundo plano (para medir a CPU do app enquanto o canal roda): a saida vai para $arquivo; devolve o processo. Espere ele terminar
+# (nunca mate) e leia com CelularTelaArquivo.
+function CelularTelaBg([int]$porta, [string]$chave, [string]$passos, [string]$arquivo) {
+  Remove-Item $arquivo, "$arquivo.err" -Force -ErrorAction SilentlyContinue
+  Start-Process (CelularExe) -ArgumentList @('tela', "$porta", $chave, "`"$passos`"") -RedirectStandardOutput $arquivo -RedirectStandardError "$arquivo.err" -PassThru -WindowStyle Hidden
+}
+function CelularTelaArquivo([string]$arquivo, $proc) {
+  $linhas = if (Test-Path $arquivo) { @(Get-Content $arquivo -Encoding utf8 -ErrorAction SilentlyContinue) } else { @() }
+  CelularTelaLer $linhas $(if ($proc -and $proc.HasExited) { $proc.ExitCode } else { $null })
 }
 # Como CelularFerramenta, mas devolve tambem as mensagens avulsas (MSG) recebidas logo depois do envio (ex.: a lista de janelas).
 # Devolve Codigo (0 = enviado, 3 = recusado) e Msgs (objetos).

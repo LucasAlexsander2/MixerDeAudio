@@ -54,6 +54,9 @@ public sealed record AppSettings
     /// <summary>Grupos de ferramentas do PC ligados (Fase 9, D1): ids de <c>RemoteTools</c>. Vazia = tudo desligado.</summary>
     public List<string> FerramentasCelular { get; init; } = new();
 
+    /// <summary>Porta do servidor do celular (Fase 10, D12): 8750 a 8759; fora da faixa ou ausente vira 8750.</summary>
+    public int PortaCelular { get; init; } = RemoteRules.FirstPort;
+
     public static AppSettings Default => new();
 
     /// <summary>Lê o JSON. Nulo, vazio, inválido ou de outra versão volta ao padrão (D1).</summary>
@@ -105,6 +108,7 @@ public sealed record AppSettings
             Versao = CurrentVersion, Favoritos = favs, NomesFavoritos = names, Tema = AppTheme.Normalize(Tema),
             CelularLigado = CelularLigado, CodigoCelular = NormalizeCode(CodigoCelular), ChavesCelular = NormalizePhones(ChavesCelular),
             FerramentasCelular = RemoteTools.Normalize(FerramentasCelular),
+            PortaCelular = RemoteRules.NormalizePort(PortaCelular),
         };
     }
 

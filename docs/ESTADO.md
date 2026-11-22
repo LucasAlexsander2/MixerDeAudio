@@ -1,6 +1,6 @@
 # Estado do projeto
 
-**Fase atual:** Fases 1 a 9 concluídas. **Fase 9 (controle do PC pelo celular, decisão A12) concluída em quatro partes (9a a 9d), teste do usuário aprovado em 22/11/2026** (roteiro e desvios em `docs/fases/fase-9.md`). Detalhes em `docs/fases/fase-1.md` a `fase-9.md`; plano em `docs/PLANO.md`.
+**Fase atual:** Fases 1 a 9 concluídas; **Fase 10 (tela do PC fluida e em tela cheia) implementada, aguardando a conferência do Opus e o teste do usuário** (`docs/fases/fase-10.md`; o canal `/tela/ws` substituiu a rota `/tela`). **Fase 9 (controle do PC pelo celular, decisão A12) concluída em quatro partes (9a a 9d), teste do usuário aprovado em 22/11/2026** (roteiro e desvios em `docs/fases/fase-9.md`). Detalhes em `docs/fases/fase-1.md` a `fase-9.md`; plano em `docs/PLANO.md`.
 
 ## Comandos
 
@@ -31,6 +31,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\testes\roteiro-f5.ps1 
 
 # Fase 9: roteiro por parte (a, b, c, d); o app sempre com --teste-oculto --celular-local --teste-pc
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\testes\roteiro-f9.ps1 -Parte a   # b tem -SemMedicao; c e d sao curtas
+# Fase 10: canal /tela/ws (casos 10.1 a 10.4; -SemMedicao pula o 10.4, cerca de 2,5 min). Substitui os casos 9.8 e 9.9, cuja rota /tela saiu
+powershell -NoProfile -ExecutionPolicy Bypass -File tools	estesoteiro-f10.ps1
 # Medicao da Fase 9 (caso 9.16): servidor com os 8 grupos ligados, sem celular e com celular (50 conexoes)
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\testes\medir.ps1 -ComServidor -TodosGrupos
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\testes\medir.ps1 -ComCelular -TodosGrupos -Ciclos 50

@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime;
 using System.Runtime.InteropServices;
-using System.Threading;
+using System.Runtime.InteropServices.WindowsRuntime;
 using System.Threading.Tasks;
 using MixerDeAudio.Interop;
 using MixerDeAudio.Services;
@@ -14,21 +14,29 @@ using Windows.Storage.Streams;
 namespace MixerDeAudio.Pc;
 
 /// <summary>
-/// Ver a tela (Fase 9b, D17 e D18): captura por GDI (<c>StretchBlt</c> com <c>HALFTONE</c> direto para um DIB do tamanho final,
-/// cursor desenhado por cima) e JPEG pelo <c>BitmapEncoder</c>. Uma captura por vez e pelo menos 250 ms entre quadros. Buffers e
-/// objetos GDI são criados e soltos a cada quadro: nada fica na memória quando ninguém olha. A leitura da tela é só leitura,
-/// por isso também roda com <c>--teste-pc</c>. O objeto só existe depois do primeiro pedido; o único timer é o de "10 s sem
-/// pedido" (só para o log), criado no primeiro quadro e solto ao encerrar.
+/// Ver a tela (Fase 9b, D17 e D18; Fase 10, D4 e D5): captura por GDI (<c>StretchBlt</c> com <c>HALFTONE</c> direto para um DIB do
+/// tamanho final, cursor desenhado por cima) e JPEG pelo <c>BitmapEncoder</c>. Um objeto por canal aberto: o DIB, o contexto GDI
+/// e a cópia do quadro anterior ficam do tamanho atual enquanto o canal está aberto e são refeitos se mudar a tela ou a
+/// largura; ao fechar (<see cref="Dispose"/>) tudo é solto, compacta e devolve a memória. Quadro igual ao anterior não é
+/// codificado. A leitura da tela é só leitura, por isso também roda com <c>--teste-pc</c>. Uma captura por vez (o laço do
+/// canal espera cada uma).
 /// </summary>
 internal sealed class ScreenCapture : IDisposable
 {
-    private const float JpegQuality = 0.6f;
+    private IntPtr _memDc, _dib, _old, _bits;
+    private int _mon = -1, _w, _h;
+    private byte[]? _prev;
+    private IBuffer? _prevBuffer;
+    private bool _hasPrev;
+    private bool _disposed;
+    private readonly Stopwatch _clock = new();
 
-    private readonly SemaphoreSlim _gate = new(1, 1);
-    private readonly object _shareLock = new();
-    private long _nextStart;
-    private Timer? _idle;
-    private bool _sharing;
+    /// <summary>Quadros enviados (codificados).</summary>
+    public int Sent { get; private set; }
+    /// <summary>Quadros iguais ao anterior, pulados.</summary>
+    public int Skipped { get; private set; }
+    /// <summary>Soma do tempo de captura e codificação dos quadros enviados, em ms.</summary>
+    public double TotalMs { get; private set; }
 
     // ---- Telas ----
 
@@ -71,44 +79,59 @@ internal sealed class ScreenCapture : IDisposable
     // ---- Quadro ----
 
     /// <summary>
-    /// Um quadro JPEG da tela <paramref name="monitor"/> com a largura pedida (cortada por <see cref="ScreenRules.FrameSize"/>).
-    /// Espera a vez e o intervalo mínimo. Nulo se a tela não existe ou a captura falhou (tela bloqueada, por exemplo).
+    /// Captura a tela <paramref name="monitor"/> na largura pedida (cortada por <see cref="ScreenRules.FrameSize"/> e pela
+    /// qualidade). <c>Jpeg</c> nulo com <c>Equal</c> verdadeiro: o quadro é igual ao anterior (nada codificado); <c>Failed</c>:
+    /// a tela não existe ou a captura falhou (tela bloqueada, por exemplo). <c>Width</c> e <c>Height</c> são as dimensões do quadro.
     /// </summary>
-    public async Task<byte[]?> CaptureJpegAsync(int monitor, int width, CancellationToken ct)
+    public async Task<(byte[]? Jpeg, bool Equal, bool Failed, int Width, int Height)> CaptureAsync(int monitor, int width, ScreenQuality quality)
     {
-        await _gate.WaitAsync(ct).ConfigureAwait(false);
-        try
-        {
-            var wait = _nextStart - Stopwatch.GetTimestamp();
-            if (wait > 0) await Task.Delay(TimeSpan.FromSeconds((double)wait / Stopwatch.Frequency), ct).ConfigureAwait(false);
-            _nextStart = Stopwatch.GetTimestamp() + (long)(ScreenRules.MinFrameInterval.TotalSeconds * Stopwatch.Frequency);
+        if (_disposed) return (null, false, true, 0, 0);
+        _clock.Restart();
+        var screens = Monitors();
+        if (monitor < 0 || monitor >= screens.Count) return (null, false, true, 0, 0);
+        var s = screens[monitor];
+        var (w, h) = ScreenRules.FrameSize(s.Width, s.Height, width, quality.MaxWidth);
+        if (w <= 0 || h <= 0) return (null, false, true, 0, 0);
+        var rebuilt = ScreenStreamRules.NeedsRebuild(_mon, _w, _h, monitor, w, h);
+        if (rebuilt && !Rebuild(monitor, w, h)) return (null, false, true, 0, 0);
+        if (!Grab(s, w, h)) return (null, false, true, w, h);
 
-            var screens = Monitors();
-            if (monitor < 0 || monitor >= screens.Count) return null;
-            var s = screens[monitor];
-            var (w, h) = ScreenRules.FrameSize(s.Width, s.Height, width);
-            if (w <= 0 || h <= 0) return null;
-            var pixels = Grab(s, w, h);
-            if (pixels is null) return null;
-            var jpeg = await EncodeAsync(pixels, w, h).ConfigureAwait(false);
-            Touch();
-            return jpeg;
-        }
-        finally
+        var len = w * h * 4;
+        var identical = !rebuilt && _hasPrev && SameAsPrevious(len);
+        if (ScreenStreamRules.Decide(rebuilt, identical) == FrameAction.Skip)
         {
-            _gate.Release();
+            Skipped++;
+            return (null, true, false, w, h);
         }
+        CopyToPrevious(len);
+        var jpeg = await EncodeAsync(_prevBuffer!, w, h, quality.Jpeg).ConfigureAwait(false);
+        Sent++;
+        TotalMs += _clock.Elapsed.TotalMilliseconds;
+        return (jpeg, false, false, w, h);
     }
 
-    private static unsafe byte[]? Grab(ScreenInfo s, int w, int h)
+    private unsafe bool SameAsPrevious(int len) =>
+        _prev is not null && ScreenStreamRules.SameFrame(_prev, new ReadOnlySpan<byte>((void*)_bits, len));
+
+    private unsafe void CopyToPrevious(int len)
     {
-        IntPtr screenDc = IntPtr.Zero, memDc = IntPtr.Zero, dib = IntPtr.Zero, old = IntPtr.Zero;
+        new ReadOnlySpan<byte>((void*)_bits, len).CopyTo(_prev);
+        _hasPrev = true;
+    }
+
+    /// <summary>Refaz o DIB e a cópia anterior para o tamanho novo (D5).</summary>
+    private unsafe bool Rebuild(int monitor, int w, int h)
+    {
+        FreeGdi();
+        FreeBuffers();
+        _hasPrev = false;
+        _mon = -1; _w = 0; _h = 0;
+        var screenDc = NativeMethods.GetDC(IntPtr.Zero);
+        if (screenDc == IntPtr.Zero) return false;
         try
         {
-            screenDc = NativeMethods.GetDC(IntPtr.Zero);
-            if (screenDc == IntPtr.Zero) return null;
-            memDc = NativeMethods.CreateCompatibleDC(screenDc);
-            if (memDc == IntPtr.Zero) return null;
+            _memDc = NativeMethods.CreateCompatibleDC(screenDc);
+            if (_memDc == IntPtr.Zero) return false;
             var bmi = new NativeMethods.BITMAPINFOHEADER
             {
                 biSize = (uint)sizeof(NativeMethods.BITMAPINFOHEADER),
@@ -117,26 +140,52 @@ internal sealed class ScreenCapture : IDisposable
                 biPlanes = 1,
                 biBitCount = 32,
             };
-            dib = NativeMethods.CreateDIBSection(screenDc, ref bmi, 0, out var bits, IntPtr.Zero, 0);
-            if (dib == IntPtr.Zero || bits == IntPtr.Zero) return null;
-            old = NativeMethods.SelectObject(memDc, dib);
-            NativeMethods.SetStretchBltMode(memDc, NativeMethods.HALFTONE);
-            NativeMethods.SetBrushOrgEx(memDc, 0, 0, IntPtr.Zero);
-            if (!NativeMethods.StretchBlt(memDc, 0, 0, w, h, screenDc, s.Left, s.Top, s.Width, s.Height,
-                    NativeMethods.SRCCOPY | NativeMethods.CAPTUREBLT))
-                return null;
-            DrawCursor(memDc, s, w);
-            NativeMethods.GdiFlush();
-            var bytes = new byte[w * h * 4];
-            Marshal.Copy(bits, bytes, 0, bytes.Length);
-            return bytes;
+            _dib = NativeMethods.CreateDIBSection(screenDc, ref bmi, 0, out _bits, IntPtr.Zero, 0);
+            if (_dib == IntPtr.Zero || _bits == IntPtr.Zero) { FreeGdi(); return false; }
+            _old = NativeMethods.SelectObject(_memDc, _dib);
+            NativeMethods.SetStretchBltMode(_memDc, NativeMethods.HALFTONE);
+            NativeMethods.SetBrushOrgEx(_memDc, 0, 0, IntPtr.Zero);
         }
         finally
         {
-            if (old != IntPtr.Zero) NativeMethods.SelectObject(memDc, old);
-            if (dib != IntPtr.Zero) NativeMethods.DeleteObject(dib);
-            if (memDc != IntPtr.Zero) NativeMethods.DeleteDC(memDc);
-            if (screenDc != IntPtr.Zero) NativeMethods.ReleaseDC(IntPtr.Zero, screenDc);
+            NativeMethods.ReleaseDC(IntPtr.Zero, screenDc);
+        }
+        _prev = new byte[w * h * 4];
+        _prevBuffer = _prev.AsBuffer();
+        _mon = monitor; _w = w; _h = h;
+        return true;
+    }
+
+    private void FreeBuffers()
+    {
+        _prevBuffer = null;
+        _prev = null;
+    }
+
+    private void FreeGdi()
+    {
+        if (_old != IntPtr.Zero && _memDc != IntPtr.Zero) NativeMethods.SelectObject(_memDc, _old);
+        if (_dib != IntPtr.Zero) NativeMethods.DeleteObject(_dib);
+        if (_memDc != IntPtr.Zero) NativeMethods.DeleteDC(_memDc);
+        _old = _dib = _memDc = _bits = IntPtr.Zero;
+    }
+
+    private bool Grab(ScreenInfo s, int w, int h)
+    {
+        var screenDc = NativeMethods.GetDC(IntPtr.Zero);
+        if (screenDc == IntPtr.Zero) return false;
+        try
+        {
+            if (!NativeMethods.StretchBlt(_memDc, 0, 0, w, h, screenDc, s.Left, s.Top, s.Width, s.Height,
+                    NativeMethods.SRCCOPY | NativeMethods.CAPTUREBLT))
+                return false;
+            DrawCursor(_memDc, s, w);
+            NativeMethods.GdiFlush();
+            return true;
+        }
+        finally
+        {
+            NativeMethods.ReleaseDC(IntPtr.Zero, screenDc);
         }
     }
 
@@ -161,12 +210,17 @@ internal sealed class ScreenCapture : IDisposable
         }
     }
 
-    private static async Task<byte[]> EncodeAsync(byte[] bgra, int w, int h)
+    /// <summary>
+    /// JPEG do quadro. O pixel vai por um <c>SoftwareBitmap</c> solto (<c>Dispose</c>) a cada quadro: com <c>SetPixelData</c> o
+    /// codificador do Windows guardava uma cópia nativa de 8 MB por quadro até o coletor rodar (centenas de MB em Alta, medido).
+    /// </summary>
+    private static async Task<byte[]> EncodeAsync(IBuffer pixels, int w, int h, float jpegQuality)
     {
+        using var bitmap = SoftwareBitmap.CreateCopyFromBuffer(pixels, BitmapPixelFormat.Bgra8, w, h, BitmapAlphaMode.Ignore);
         using var stream = new InMemoryRandomAccessStream();
-        var props = new BitmapPropertySet { { "ImageQuality", new BitmapTypedValue(JpegQuality, PropertyType.Single) } };
+        var props = new BitmapPropertySet { { "ImageQuality", new BitmapTypedValue(jpegQuality, PropertyType.Single) } };
         var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.JpegEncoderId, stream, props);
-        encoder.SetPixelData(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Ignore, (uint)w, (uint)h, 96, 96, bgra);
+        encoder.SetSoftwareBitmap(bitmap);
         await encoder.FlushAsync();
         var bytes = new byte[stream.Size];
         stream.Seek(0);
@@ -177,45 +231,14 @@ internal sealed class ScreenCapture : IDisposable
         return bytes;
     }
 
-    // ---- Log da transmissão (nunca por quadro) ----
-
-    private void Touch()
-    {
-        lock (_shareLock)
-        {
-            if (!_sharing)
-            {
-                _sharing = true;
-                Log.Write("celular: tela compartilhada");
-            }
-            _idle ??= new Timer(OnIdle, null, Timeout.Infinite, Timeout.Infinite);
-            _idle.Change(ScreenRules.IdleEnd, Timeout.InfiniteTimeSpan);
-        }
-    }
-
-    private void OnIdle(object? state)
-    {
-        lock (_shareLock)
-        {
-            if (!_sharing) return;
-            _sharing = false;
-            _idle?.Dispose();
-            _idle = null;
-            Log.Write("celular: tela encerrada");
-        }
-        // Os quadros (1 MB cada) vão para o monte de objetos grandes: ao encerrar, compacta e devolve a memória (D17: nada fica preso)
-        GCSettings.LargeObjectHeapCompactionMode = GCLargeObjectHeapCompactionMode.CompactOnce;
-        MemoryTrimmer.Trim();
-    }
-
+    /// <summary>Fecha o canal: solta o DIB e a cópia anterior, compacta o monte de objetos grandes e devolve a memória (D5).</summary>
     public void Dispose()
     {
-        lock (_shareLock)
-        {
-            _idle?.Dispose();
-            _idle = null;
-            _sharing = false;
-        }
-        _gate.Dispose();
+        if (_disposed) return;
+        _disposed = true;
+        FreeGdi();
+        FreeBuffers();
+        GCSettings.LargeObjectHeapCompactionMode = GCLargeObjectHeapCompactionMode.CompactOnce;
+        MemoryTrimmer.Trim();
     }
 }

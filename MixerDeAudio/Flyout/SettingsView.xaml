@@ -89,6 +89,9 @@
                                    TextWrapping="Wrap" Opacity="0.7" FontSize="12" />
                         <TextBlock AutomationProperties.AutomationId="RemoteAddress"
                                    Text="{x:Bind Model.RemoteAddress, Mode=OneWay}" IsTextSelectionEnabled="True" TextWrapping="Wrap" />
+                        <TextBlock AutomationProperties.AutomationId="RemoteAddressHint"
+                                   Text="Para o endereço não mudar, reserve o IP deste PC no roteador (DHCP). No iPhone, o atalho da Tela de Início precisa ser pareado uma vez."
+                                   TextWrapping="Wrap" Opacity="0.7" FontSize="12" />
                         <TextBlock AutomationProperties.AutomationId="RemoteCode"
                                    Text="{x:Bind Model.RemoteCode, Mode=OneWay}" IsTextSelectionEnabled="True"
                                    FontSize="28" FontWeight="SemiBold" CharacterSpacing="200" />

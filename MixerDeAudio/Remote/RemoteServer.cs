@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
@@ -19,14 +20,16 @@ namespace MixerDeAudio.Remote;
 /// <summary>
 /// Servidor HTTP/1.1 próprio e pequeno (Fase 6, D5 a D7, D10): um <see cref="TcpListener"/> em <c>0.0.0.0:8750</c> (ou
 /// em <c>127.0.0.1</c> com <c>--celular-local</c>), sem ASP.NET e sem HttpListener (que pede administrador para escutar na
-/// rede). Uma requisição por conexão com <c>Connection: close</c>; só o <c>/ws</c> vira WebSocket. Ligado e parado, fica
+/// rede). Uma requisição por conexão com <c>Connection: close</c>; só o <c>/ws</c> e o <c>/tela/ws</c> viram WebSocket. Ligado e parado, fica
 /// num <c>AcceptTcpClientAsync</c>, sem timer. A rede roda no pool de threads; o que mexe no áudio ou na configuração é
 /// enfileirado na thread da tela.
 /// </summary>
 internal sealed class RemoteServer : IDisposable
 {
-    public const int FirstPort = 8750;
-    public const int LastPort = 8759;
+    public const int FirstPort = RemoteRules.FirstPort;
+    public const int LastPort = RemoteRules.LastPort;
+    private static readonly TimeSpan PortWait = TimeSpan.FromSeconds(1); // espaço entre tentativas na porta salva (D12)
+    private const int PortAttempts = 10; // 10 tentativas, uma por segundo: até 10 s
     private const int MaxOpenRequests = 32;
     private const string PageResource = "MixerDeAudio.Web.index.html";
     private static readonly TimeSpan HeadTimeout = TimeSpan.FromSeconds(10);
@@ -41,10 +44,12 @@ internal sealed class RemoteServer : IDisposable
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
     private bool _busy;
+    private bool _starting; // esperando a porta salva ficar livre (D12)
+    private CancellationTokenSource? _startCts;
     private int _openRequests;
     private int _connections;
     private int _nextNumber;
-    private ScreenCapture? _screen; // criada no primeiro pedido de /tela (D17)
+    private int _screenBusy; // 1 enquanto há um canal /tela/ws aberto (Fase 10, D1: no máximo um por vez)
 
     public RemoteServer(AudioHub hub, SettingsStore settings, DispatcherQueue ui, bool localOnly)
     {
@@ -55,6 +60,8 @@ internal sealed class RemoteServer : IDisposable
     }
 
     public bool IsRunning => _listener is not null;
+    /// <summary>Esperando a porta salva ficar livre (D12).</summary>
+    public bool IsStarting => _starting;
 
     /// <summary>Porta em que está escutando; 0 se parado.</summary>
     public int Port { get; private set; }
@@ -65,13 +72,16 @@ internal sealed class RemoteServer : IDisposable
     /// <summary>A quantidade de celulares conectados mudou (thread qualquer).</summary>
     public event Action? ConnectionsChanged;
 
+    /// <summary>O servidor terminou de ligar (ou desistiu) depois de esperar pela porta (D12). Thread da tela.</summary>
+    public event Action? StateChanged;
+
     /// <summary>Liga ou desliga conforme <c>CelularLigado</c> na configuração (D10). Thread da tela.</summary>
     public void Apply()
     {
         if (_busy) return;
         var want = _settings.Current.CelularLigado;
-        if (want && !IsRunning) Start();
-        else if (!want && IsRunning) Stop();
+        if (want && !IsRunning && !_starting) Start();
+        else if (!want && (IsRunning || _starting)) Stop();
     }
 
     private void Start()
@@ -83,26 +93,13 @@ internal sealed class RemoteServer : IDisposable
             if (_settings.Current.CodigoCelular is null)
                 _settings.Update(s => s with { CodigoCelular = RemoteRules.NewCode() });
 
-            var address = _localOnly ? IPAddress.Loopback : IPAddress.Any;
-            for (var port = FirstPort; port <= LastPort; port++)
-            {
-                var listener = new TcpListener(address, port) { ExclusiveAddressUse = true };
-                try
-                {
-                    listener.Start(16);
-                }
-                catch (SocketException)
-                {
-                    continue; // porta ocupada: tenta a seguinte
-                }
-                _listener = listener;
-                Port = port;
-                _cts = new CancellationTokenSource();
-                Log.Write($"celular: servidor ligado em {address}:{port}");
-                _ = AcceptLoopAsync(listener, _cts.Token);
-                return;
-            }
-            Log.Write($"ERRO celular: nenhuma porta livre de {FirstPort} a {LastPort}");
+            // D12: a porta salva primeiro. Se estiver ocupada (TIME_WAIT de um fechamento recente), espera até 10 s
+            // sem travar a tela e só então passa às outras da faixa.
+            var order = RemoteRules.PortOrder(_settings.Current.PortaCelular);
+            if (TryBind(order[0])) return;
+            _starting = true;
+            _startCts = new CancellationTokenSource();
+            _ = StartRetryAsync(order, _startCts.Token);
         }
         catch (Exception ex)
         {
@@ -114,22 +111,78 @@ internal sealed class RemoteServer : IDisposable
         }
     }
 
+    private bool TryBind(int port)
+    {
+        var address = _localOnly ? IPAddress.Loopback : IPAddress.Any;
+        var listener = new TcpListener(address, port) { ExclusiveAddressUse = true };
+        try
+        {
+            listener.Start(16);
+        }
+        catch (SocketException)
+        {
+            listener.Dispose();
+            return false; // porta ocupada
+        }
+        _listener = listener;
+        Port = port;
+        _cts = new CancellationTokenSource();
+        if (port != _settings.Current.PortaCelular) _settings.Update(s => s with { PortaCelular = port });
+        Log.Write($"celular: servidor ligado em {address}:{port}");
+        _ = AcceptLoopAsync(listener, _cts.Token);
+        return true;
+    }
+
+    /// <summary>Continua na thread da tela (sem ConfigureAwait): tentativas 2 a 10 na porta salva, depois o resto da faixa.</summary>
+    private async Task StartRetryAsync(IReadOnlyList<int> order, CancellationToken ct)
+    {
+        try
+        {
+            Log.Write($"celular: porta {order[0]} ocupada, tentando por ate {PortAttempts} s");
+            for (var i = 1; i < PortAttempts; i++)
+            {
+                await Task.Delay(PortWait, ct);
+                if (TryBind(order[0])) return;
+            }
+            for (var i = 1; i < order.Count; i++)
+                if (TryBind(order[i])) return;
+            Log.Write($"ERRO celular: nenhuma porta livre de {FirstPort} a {LastPort}");
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            Log.Write($"ERRO celular: {ex.Message}");
+        }
+        finally
+        {
+            if (!ct.IsCancellationRequested)
+            {
+                _starting = false;
+                _startCts?.Dispose();
+                _startCts = null;
+            }
+            StateChanged?.Invoke();
+        }
+    }
+
     private void Stop()
     {
         _busy = true;
         try
         {
+            if (_starting)
+            {
+                _starting = false;
+                try { _startCts?.Cancel(); } catch (ObjectDisposedException) { }
+                _startCts?.Dispose();
+                _startCts = null;
+            }
             var listener = _listener;
             _listener = null;
             Port = 0;
             try { _cts?.Cancel(); } catch (ObjectDisposedException) { }
             try { listener?.Stop(); } catch { }
             CloseAllSessions();
-            lock (_gate)
-            {
-                _screen?.Dispose();
-                _screen = null;
-            }
             _cts?.Dispose();
             _cts = null;
             if (listener is not null) Log.Write("celular: servidor desligado");
@@ -229,6 +282,15 @@ internal sealed class RemoteServer : IDisposable
                     return;
                 }
 
+                if (path == "/tela/ws")
+                {
+                    // Fase 10, D1: o canal da imagem vive além do tempo do cabeçalho e não conta como requisição aberta
+                    Interlocked.Decrement(ref _openRequests);
+                    counted = false;
+                    await HandleScreenSocketAsync(stream, head, serverCt).ConfigureAwait(false);
+                    return;
+                }
+
                 if (RemoteRules.IsUpload(head))
                 {
                     // Fase 9d, D26: o corpo é lido em blocos direto para o disco, com prazo de 30 s sem dados (não os 10 s da leitura comum)
@@ -241,10 +303,11 @@ internal sealed class RemoteServer : IDisposable
                 var ct = cts.Token;
                 if (head.Method == "GET" && path == "/")
                     await ServePageAsync(stream, ct).ConfigureAwait(false);
+                else if (head.Method == "GET" && path == "/sessao")
+                    // Fase 10b, D11: só diz se o cookie é de um celular pareado; não exige o celular conectado (sem 409)
+                    await WriteAsync(stream, Authenticate(head) is null ? 401 : 204, "text/plain; charset=utf-8", Array.Empty<byte>(), null, ct).ConfigureAwait(false);
                 else if (head.Method == "POST" && path == "/parear")
                     await PairAsync(stream, head, body, remote, ct).ConfigureAwait(false);
-                else if (head.Method == "GET" && path == "/tela")
-                    await ServeScreenAsync(stream, head, q >= 0 ? head.Path.Substring(q + 1) : null, ct).ConfigureAwait(false);
                 else if (head.Method == "GET" && path.StartsWith("/icone/", StringComparison.Ordinal))
                     await ServeIconAsync(stream, head, path.Substring("/icone/".Length), ct).ConfigureAwait(false);
                 else
@@ -303,6 +366,7 @@ internal sealed class RemoteServer : IDisposable
     {
         101 => "Switching Protocols",
         200 => "OK",
+        204 => "No Content",
         400 => "Bad Request",
         401 => "Unauthorized",
         403 => "Forbidden",
@@ -453,14 +517,48 @@ internal sealed class RemoteServer : IDisposable
         await WriteAsync(stream, 200, "image/png", png, new[] { "Cache-Control: private, max-age=3600" }, ct).ConfigureAwait(false);
     }
 
-    // ---- GET /tela?mon=<i>&w=<largura> (Fase 9b, D17 a D20) ----
+    // ---- GET /tela/ws (Fase 10, D1 a D4, D9) ----
+
+    /// <summary>Configuração atual do canal da tela (troca atômica da referência).</summary>
+    private sealed record ScreenConfig(int Monitor, int Width, ScreenQuality Quality);
+
+    /// <summary>Estado compartilhado entre o recebimento e o envio de um canal da tela.</summary>
+    private sealed class ScreenChannel
+    {
+        public ScreenConfig? Config;
+        public readonly SemaphoreSlim Credit = new(0, 1);
+        public bool Started;
+        public string LastQuality = "normal";
+
+        /// <summary>Libera um quadro (o primeiro depois da configuração, os outros a cada "ok"); nunca acumula.</summary>
+        public void GrantFrame()
+        {
+            try { Credit.Release(); }
+            catch (SemaphoreFullException) { }
+        }
+    }
+
+    /// <summary>0 se o celular ainda pode ver a tela; senão o status HTTP da recusa (409 outro celular, 403 grupo desligado).</summary>
+    private int ScreenAccess(string phoneHash)
+    {
+        string? connected;
+        lock (_gate) connected = _sessions.Count > 0 ? _sessions[0].KeyHash : null;
+        if (!string.Equals(connected, phoneHash, StringComparison.Ordinal)) return 409;
+        var cfg = _settings.Current;
+        if (!cfg.CelularLigado || !RemoteTools.IsEnabled(cfg.FerramentasCelular, RemoteTools.Screen)) return 403;
+        return 0;
+    }
 
     /// <summary>
-    /// Um quadro JPEG da tela. 401 sem cookie válido; 409 se a chave não é a do celular conectado agora; 403 com o grupo
-    /// "tela" desligado; 503 se a captura falhou (tela bloqueada, por exemplo).
+    /// Canal WebSocket da imagem da tela. 401 sem cookie válido; 409 se a chave não é a do celular conectado agora; 403 com o
+    /// grupo "tela" desligado ou <c>Origin</c> diferente do <c>Host</c>; 400 se não é um pedido de WebSocket; 503 se já há um
+    /// canal aberto. Depois do upgrade, só quadros binários (JPEG), um por vez (a página confirma com <c>{"ok":1}</c>).
     /// </summary>
-    private async Task ServeScreenAsync(NetworkStream stream, HttpHead head, string? query, CancellationToken ct)
+    private async Task HandleScreenSocketAsync(NetworkStream stream, HttpHead head, CancellationToken serverCt)
     {
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(serverCt);
+        cts.CancelAfter(HeadTimeout);
+        var ct = cts.Token;
         const string text = "text/plain; charset=utf-8";
         var phone = Authenticate(head);
         if (phone is null)
@@ -468,34 +566,160 @@ internal sealed class RemoteServer : IDisposable
             await WriteAsync(stream, 401, text, Array.Empty<byte>(), null, ct).ConfigureAwait(false);
             return;
         }
-        string? connected;
-        lock (_gate) connected = _sessions.Count > 0 ? _sessions[0].KeyHash : null;
-        if (!string.Equals(connected, phone.Hash, StringComparison.Ordinal))
+        var denied = ScreenAccess(phone.Hash);
+        if (denied != 0)
         {
-            await WriteAsync(stream, 409, text, Array.Empty<byte>(), null, ct).ConfigureAwait(false);
+            await WriteAsync(stream, denied, text, Array.Empty<byte>(), null, ct).ConfigureAwait(false);
             return;
         }
-        var cfg = _settings.Current;
-        if (!cfg.CelularLigado || !RemoteTools.IsEnabled(cfg.FerramentasCelular, RemoteTools.Screen))
+        if (!RemoteRules.IsWebSocketUpgrade(head))
+        {
+            await WriteAsync(stream, 400, text, Array.Empty<byte>(), null, ct).ConfigureAwait(false);
+            return;
+        }
+        if (!RemoteRules.OriginMatchesHost(head.Header("Origin"), head.Header("Host")))
         {
             await WriteAsync(stream, 403, text, Array.Empty<byte>(), null, ct).ConfigureAwait(false);
             return;
         }
-        ScreenCapture capture;
-        lock (_gate) capture = _screen ??= new ScreenCapture();
-        var (mon, width) = ScreenRules.ParseQuery(query);
-        byte[]? jpeg = null;
-        try { jpeg = await capture.CaptureJpegAsync(mon, width, ct).ConfigureAwait(false); }
-        catch (Exception ex) when (ex is not OperationCanceledException and not ObjectDisposedException)
-        {
-            Log.Write($"ERRO celular: tela: {ex.Message}");
-        }
-        if (jpeg is null || jpeg.Length == 0)
+        if (Interlocked.CompareExchange(ref _screenBusy, 1, 0) != 0)
         {
             await WriteAsync(stream, 503, text, Array.Empty<byte>(), null, ct).ConfigureAwait(false);
             return;
         }
-        await WriteAsync(stream, 200, "image/jpeg", jpeg, null, ct).ConfigureAwait(false);
+        WebSocket? socket = null;
+        ScreenCapture? capture = null;
+        var channel = new ScreenChannel();
+        try
+        {
+            var accept = RemoteRules.ComputeWebSocketAccept(head.Header("Sec-WebSocket-Key")!);
+            var response = "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
+                           $"Sec-WebSocket-Accept: {accept}\r\n\r\n";
+            await stream.WriteAsync(Encoding.ASCII.GetBytes(response), ct).ConfigureAwait(false);
+            await stream.FlushAsync(ct).ConfigureAwait(false);
+            cts.CancelAfter(Timeout.InfiniteTimeSpan);
+
+            socket = WebSocket.CreateFromStream(stream, new WebSocketCreationOptions
+            {
+                IsServer = true,
+                KeepAliveInterval = TimeSpan.FromSeconds(20),
+            });
+            capture = new ScreenCapture();
+            Log.Write("celular: tela compartilhada");
+            using var loopCts = CancellationTokenSource.CreateLinkedTokenSource(serverCt);
+            var receive = ScreenReceiveLoopAsync(socket, channel, loopCts);
+            var send = ScreenSendLoopAsync(socket, capture, channel, phone.Hash, loopCts.Token);
+            await Task.WhenAny(receive, send).ConfigureAwait(false);
+            if (socket.State == WebSocketState.CloseReceived) await CloseScreenAsync(socket, 1000, "").ConfigureAwait(false);
+            loopCts.Cancel();
+            try { await Task.WhenAll(receive, send).ConfigureAwait(false); }
+            catch (Exception ex) when (ex is OperationCanceledException or IOException or SocketException or ObjectDisposedException or WebSocketException) { }
+        }
+        finally
+        {
+            if (capture is not null)
+            {
+                var n = capture.Sent;
+                var ms = n > 0 ? capture.TotalMs / n : 0;
+                Log.Write($"celular: tela encerrada ({n} quadros, {capture.Skipped} iguais, {ms:0} ms por quadro, {channel.LastQuality})");
+                capture.Dispose();
+            }
+            socket?.Dispose();
+            channel.Credit.Dispose();
+            Interlocked.Exchange(ref _screenBusy, 0);
+        }
+    }
+
+    /// <summary>Lê as mensagens de texto da página: configuração (tela, largura, qualidade) e "ok" (quadro desenhado).</summary>
+    private static async Task ScreenReceiveLoopAsync(WebSocket socket, ScreenChannel channel, CancellationTokenSource loopCts)
+    {
+        var ct = loopCts.Token;
+        var buffer = new byte[512];
+        try
+        {
+            while (!ct.IsCancellationRequested && socket.State == WebSocketState.Open)
+            {
+                var filled = 0;
+                var tooBig = false;
+                ValueWebSocketReceiveResult r;
+                do
+                {
+                    r = await socket.ReceiveAsync(buffer.AsMemory(filled), ct).ConfigureAwait(false);
+                    if (r.MessageType == WebSocketMessageType.Close) return;
+                    if (filled + r.Count >= buffer.Length) { tooBig = true; filled = 0; }
+                    else filled += r.Count;
+                } while (!r.EndOfMessage);
+                if (tooBig || r.MessageType != WebSocketMessageType.Text) continue;
+                var msg = ScreenStreamRules.Parse(buffer.AsSpan(0, filled));
+                switch (msg.Kind)
+                {
+                    case StreamMessageKind.Config:
+                    {
+                        var q = ScreenRules.QualityFor(msg.Quality);
+                        channel.LastQuality = q.Id;
+                        Volatile.Write(ref channel.Config, new ScreenConfig(msg.Monitor, msg.Width, q));
+                        if (!channel.Started) { channel.Started = true; channel.GrantFrame(); }
+                        break;
+                    }
+                    case StreamMessageKind.Ok:
+                        if (channel.Started) channel.GrantFrame();
+                        break;
+                }
+            }
+        }
+        finally
+        {
+            loopCts.Cancel();
+        }
+    }
+
+    /// <summary>
+    /// Laço de captura: com o "ok" do quadro anterior e o intervalo da qualidade vencido, captura; quadro igual ao anterior
+    /// não vai e o laço tenta de novo depois do intervalo (D2 e D4). No máximo um quadro em trânsito.
+    /// </summary>
+    private async Task ScreenSendLoopAsync(WebSocket socket, ScreenCapture capture, ScreenChannel channel, string phoneHash, CancellationToken ct)
+    {
+        long lastStart = 0;
+        while (!ct.IsCancellationRequested && socket.State == WebSocketState.Open)
+        {
+            await channel.Credit.WaitAsync(ct).ConfigureAwait(false);
+            while (true)
+            {
+                ct.ThrowIfCancellationRequested();
+                if (ScreenAccess(phoneHash) != 0)
+                {
+                    await CloseScreenAsync(socket, 4003, "recusado").ConfigureAwait(false);
+                    return;
+                }
+                var cfg = Volatile.Read(ref channel.Config)!;
+                var since = lastStart == 0 ? TimeSpan.MaxValue : Stopwatch.GetElapsedTime(lastStart);
+                if (!ScreenStreamRules.CanCapture(true, since, cfg.Quality.Interval))
+                    await Task.Delay(ScreenStreamRules.RemainingDelay(since, cfg.Quality.Interval), ct).ConfigureAwait(false);
+                lastStart = Stopwatch.GetTimestamp();
+                var frame = await capture.CaptureAsync(cfg.Monitor, cfg.Width, cfg.Quality).ConfigureAwait(false);
+                if (frame.Failed)
+                {
+                    await CloseScreenAsync(socket, 4004, "indisponivel").ConfigureAwait(false);
+                    return;
+                }
+                if (frame.Jpeg is null) continue; // igual ao anterior: não vai, tenta de novo no próximo intervalo
+                await socket.SendAsync(frame.Jpeg, WebSocketMessageType.Binary, true, ct).ConfigureAwait(false);
+                break;
+            }
+        }
+    }
+
+    private static async Task CloseScreenAsync(WebSocket socket, int code, string reason)
+    {
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            await socket.CloseOutputAsync((WebSocketCloseStatus)code, reason, cts.Token).ConfigureAwait(false);
+        }
+        catch
+        {
+            // a página já saiu
+        }
     }
 
     // ---- POST /arquivo?nome=<nome> (Fase 9d, D20 e D26) ----

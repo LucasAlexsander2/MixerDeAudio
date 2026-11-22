@@ -2,13 +2,14 @@ using MixerDeAudio.Pc;
 
 namespace MixerDeAudio.Tests;
 
-/// <summary>Fase 9b, D17 a D19: tamanho do quadro, pedido de /tela, ordem das telas e ponto absoluto do mouse.</summary>
+/// <summary>Fase 9b, D17 a D19: qualidades, tamanho do quadro, ordem das telas e ponto absoluto do mouse.</summary>
 public class ScreenRulesTests
 {
     [Theory]
     [InlineData(1920, 1080, 640, 640, 360)]
-    [InlineData(1920, 1080, 5000, 1280, 720)]
+    [InlineData(1920, 1080, 5000, 1920, 1080)]
     [InlineData(1920, 1080, 1280, 1280, 720)]
+    [InlineData(3440, 1440, 3000, 1920, 804)]    // ultra larga: corta em 1920
     [InlineData(1920, 1080, 0, 640, 360)]       // sem largura: 640
     [InlineData(1920, 1080, -20, 640, 360)]
     [InlineData(1920, 1080, 50, 160, 90)]       // mínimo de 160
@@ -19,21 +20,38 @@ public class ScreenRulesTests
     public void TamanhoDoQuadro(int sw, int sh, int pedida, int w, int h) => Assert.Equal((w, h), ScreenRules.FrameSize(sw, sh, pedida));
 
     [Fact]
-    public void TamanhoDoQuadro_LarguraAbsurda() => Assert.Equal((1280, 720), ScreenRules.FrameSize(1920, 1080, int.MaxValue));
+    public void TamanhoDoQuadro_LarguraAbsurda() => Assert.Equal((1920, 1080), ScreenRules.FrameSize(1920, 1080, int.MaxValue));
 
     [Fact]
     public void TamanhoDoQuadro_TelaInvalida() => Assert.Equal((0, 0), ScreenRules.FrameSize(0, 1080, 640));
 
     [Theory]
-    [InlineData("mon=1&w=640", 1, 640)]
-    [InlineData("w=320&mon=2", 2, 320)]
-    [InlineData("w=640", 0, 640)]
-    [InlineData("mon=abc&w=-5", 0, 0)]
-    [InlineData("mon=99999999999&w=1", 0, 1)]
-    [InlineData("", 0, 0)]
-    [InlineData(null, 0, 0)]
-    [InlineData("x=1&&=2&mon", 0, 0)]
-    public void PedidoDeTela(string? query, int mon, int w) => Assert.Equal((mon, w), ScreenRules.ParseQuery(query));
+    [InlineData(3840, 2160, 3000, "eco", 960, 540)]
+    [InlineData(3840, 2160, 3000, "normal", 1280, 720)]
+    [InlineData(3840, 2160, 3000, "alta", 1920, 1080)]
+    [InlineData(1600, 900, 3000, "alta", 1600, 900)]    // nunca maior que a tela
+    [InlineData(1920, 1080, 100, "alta", 160, 90)]      // mínimo de 160
+    [InlineData(1920, 1080, 1000, "eco", 960, 540)]     // pedido 1000, corte da econômica 960
+    public void LarguraFinalPorQualidade(int sw, int sh, int pedida, string q, int w, int h) =>
+        Assert.Equal((w, h), ScreenRules.FrameSize(sw, sh, pedida, ScreenRules.QualityFor(q).MaxWidth));
+
+    [Fact]
+    public void Qualidades_Tabela()
+    {
+        var eco = ScreenRules.QualityFor("eco");
+        var normal = ScreenRules.QualityFor("normal");
+        var alta = ScreenRules.QualityFor("alta");
+        Assert.Equal(("eco", 500.0, 960, 0.5f), (eco.Id, eco.Interval.TotalMilliseconds, eco.MaxWidth, eco.Jpeg));
+        Assert.Equal(("normal", 125.0, 1280, 0.7f), (normal.Id, normal.Interval.TotalMilliseconds, normal.MaxWidth, normal.Jpeg));
+        Assert.Equal(("alta", 83.0, 1920, 0.8f), (alta.Id, alta.Interval.TotalMilliseconds, alta.MaxWidth, alta.Jpeg));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("ultra")]
+    [InlineData("ALTA")]
+    public void Qualidade_DesconhecidaViraNormal(string? id) => Assert.Equal("normal", ScreenRules.QualityFor(id).Id);
 
     private static readonly ScreenInfo[] Duas =
     {
@@ -117,7 +135,7 @@ public class ScreenRulesTests
     [Fact]
     public void Intervalos()
     {
-        Assert.Equal(250, ScreenRules.MinFrameInterval.TotalMilliseconds);
+        Assert.Equal(1920, ScreenRules.MaxWidth);
         Assert.Equal(10, ScreenRules.IdleEnd.TotalSeconds);
     }
 }

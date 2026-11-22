@@ -24,6 +24,42 @@ public static class RemoteRules
     public const string CookieName = "mx";
     private const string WebSocketGuid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
+    // ---- Porta e reconexão (Fase 10b, D11 e D12) ----
+
+    public const int FirstPort = 8750;
+    public const int LastPort = 8759;
+
+    /// <summary>Porta salva válida: fora de 8750 a 8759 vira 8750.</summary>
+    public static int NormalizePort(int port) => port is >= FirstPort and <= LastPort ? port : FirstPort;
+
+    /// <summary>Ordem de tentativa na partida: a porta salva primeiro, depois as outras da faixa em ordem crescente.</summary>
+    public static IReadOnlyList<int> PortOrder(int saved)
+    {
+        saved = NormalizePort(saved);
+        var list = new List<int> { saved };
+        for (var p = FirstPort; p <= LastPort; p++)
+            if (p != saved) list.Add(p);
+        return list;
+    }
+
+    /// <summary>O que a página faz depois de uma resposta de <c>/sessao</c> ou <c>/parear</c> (espelhado no JS).</summary>
+    public enum PageAction { Connect, Pair, Reconnect }
+
+    /// <summary>
+    /// Só 401 leva ao pareamento. 2xx segue conectando. Sem resposta (<c>null</c>), 5xx, 409 ("ocupado"), WebSocket caído
+    /// e qualquer outro status ficam em "Reconectando…".
+    /// </summary>
+    public static PageAction DecidePage(int? status) => status switch
+    {
+        null => PageAction.Reconnect,
+        >= 200 and < 300 => PageAction.Connect,
+        401 => PageAction.Pair,
+        _ => PageAction.Reconnect,
+    };
+
+    /// <summary>Espera antes da tentativa <paramref name="attempt"/> (0, 1, 2…): 0,5 s, dobrando, até 5 s.</summary>
+    public static int ReconnectDelayMs(int attempt) => Math.Min(5000, 500 << Math.Clamp(attempt, 0, 4));
+
     // ---- Rede local (D7) ----
 
     /// <summary>

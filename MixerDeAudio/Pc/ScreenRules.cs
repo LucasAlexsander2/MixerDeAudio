@@ -1,53 +1,47 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 
 namespace MixerDeAudio.Pc;
 
 /// <summary>Uma tela ligada ao PC, em pixels da área de trabalho virtual (Fase 9b, D18).</summary>
 public readonly record struct ScreenInfo(int Index, int Left, int Top, int Width, int Height, bool Primary);
 
-/// <summary>Regras puras de "ver a tela" (Fase 9b, D17 a D19): tamanho do quadro, pedido HTTP e ponto absoluto do mouse.</summary>
+/// <summary>Uma das qualidades da transmissão (Fase 10, D3): intervalo mínimo entre quadros, largura máxima e qualidade do JPEG.</summary>
+public readonly record struct ScreenQuality(string Id, TimeSpan Interval, int MaxWidth, float Jpeg);
+
+/// <summary>Regras puras de "ver a tela" (Fase 9b, D17 a D19; Fase 10, D3): qualidades, tamanho do quadro e ponto absoluto do mouse.</summary>
 public static class ScreenRules
 {
-    public const int MaxWidth = 1280;
+    public const int MaxWidth = 1920;
     public const int MinWidth = 160;
     public const int DefaultWidth = 640;
-    /// <summary>Intervalo mínimo entre quadros.</summary>
-    public static readonly TimeSpan MinFrameInterval = TimeSpan.FromMilliseconds(250);
-    /// <summary>Sem pedido por tanto tempo, a transmissão é considerada encerrada (só para o log).</summary>
+    /// <summary>Sem quadro por tanto tempo, a transmissão é considerada parada (só para o log).</summary>
     public static readonly TimeSpan IdleEnd = TimeSpan.FromSeconds(10);
 
+    public static readonly ScreenQuality Eco = new("eco", TimeSpan.FromMilliseconds(500), 960, 0.5f);
+    public static readonly ScreenQuality Normal = new("normal", TimeSpan.FromMilliseconds(125), 1280, 0.7f);
+    public static readonly ScreenQuality Alta = new("alta", TimeSpan.FromMilliseconds(83), 1920, 0.8f);
+
+    /// <summary>Qualidade pelo id ("eco", "normal", "alta"); nulo ou desconhecido vira "normal".</summary>
+    public static ScreenQuality QualityFor(string? id) => id switch
+    {
+        "eco" => Eco,
+        "alta" => Alta,
+        _ => Normal,
+    };
+
     /// <summary>
-    /// Tamanho do quadro: largura pedida (0, negativa ou ausente = 640), entre 160 e 1280 e nunca maior que a da tela
-    /// (sem ampliar); altura na mesma proporção.
+    /// Tamanho do quadro: largura pedida (0, negativa ou ausente = 640), entre 160 e o limite da qualidade
+    /// (<paramref name="maxWidth"/>, no máximo 1920) e nunca maior que a da tela (sem ampliar); altura na mesma proporção.
     /// </summary>
-    public static (int Width, int Height) FrameSize(int sourceWidth, int sourceHeight, int requestedWidth)
+    public static (int Width, int Height) FrameSize(int sourceWidth, int sourceHeight, int requestedWidth, int maxWidth = MaxWidth)
     {
         if (sourceWidth <= 0 || sourceHeight <= 0) return (0, 0);
         var w = requestedWidth <= 0 ? DefaultWidth : requestedWidth;
-        w = Math.Clamp(w, MinWidth, MaxWidth);
+        w = Math.Clamp(w, MinWidth, Math.Clamp(maxWidth, MinWidth, MaxWidth));
         if (w > sourceWidth) w = sourceWidth;
         var h = (int)Math.Round(sourceHeight * (double)w / sourceWidth, MidpointRounding.AwayFromZero);
         return (w, Math.Max(1, h));
-    }
-
-    /// <summary>Lê <c>mon=&lt;i&gt;&amp;w=&lt;largura&gt;</c> do pedido; o que faltar ou não for número vira 0.</summary>
-    public static (int Monitor, int Width) ParseQuery(string? query)
-    {
-        int mon = 0, width = 0;
-        if (string.IsNullOrEmpty(query)) return (0, 0);
-        foreach (var part in query.Split('&'))
-        {
-            var eq = part.IndexOf('=');
-            if (eq <= 0) continue;
-            var key = part.Substring(0, eq);
-            var ok = int.TryParse(part.AsSpan(eq + 1), NumberStyles.None, CultureInfo.InvariantCulture, out var v);
-            if (!ok) v = 0;
-            if (key == "mon") mon = v;
-            else if (key == "w") width = v;
-        }
-        return (mon, width);
     }
 
     /// <summary>Telas com a principal primeiro e as outras da esquerda para a direita; os índices são refeitos nessa ordem.</summary>

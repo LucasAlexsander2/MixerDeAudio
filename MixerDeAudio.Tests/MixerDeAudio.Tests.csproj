@@ -46,6 +46,7 @@
     <Compile Include="..\MixerDeAudio\Pc\IPcActions.cs" Link="Pc\IPcActions.cs" />
     <Compile Include="..\MixerDeAudio\Pc\InputRules.cs" Link="Pc\InputRules.cs" />
     <Compile Include="..\MixerDeAudio\Pc\ScreenRules.cs" Link="Pc\ScreenRules.cs" />
+    <Compile Include="..\MixerDeAudio\Pc\ScreenStreamRules.cs" Link="Pc\ScreenStreamRules.cs" />
     <Compile Include="..\MixerDeAudio\Pc\WindowFilter.cs" Link="Pc\WindowFilter.cs" />
     <Compile Include="..\MixerDeAudio\Pc\Shortcuts.cs" Link="Pc\Shortcuts.cs" />
     <Compile Include="..\MixerDeAudio\Pc\SleepTimer.cs" Link="Pc\SleepTimer.cs" />

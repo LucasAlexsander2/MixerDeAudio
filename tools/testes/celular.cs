@@ -14,8 +14,11 @@
 //                                                       desconectar); sem "teste":true RECUSA (codigo 3) sem enviar nada
 //                                                       (Fase 9c: tambem janelas, janela, atalho, sono e assinar; as mensagens avulsas recebidas logo depois do envio,
 //                                                       como a lista de janelas, saem como "MSG<TAB><json>")
-//   celular.exe tela <porta> <chave|-> <mon> <w> [n [periodo-ms]] -> (Fase 9b) GET /tela?mon=&w= (n vezes seguidas, sem pausa ou a cada periodo-ms); imprime por quadro
-//                                                       "<i><TAB><status><TAB><tipo><TAB><bytes><TAB><LxA><TAB><ms><TAB>jpeg|nao-jpeg" e, com n > 1, "TOTAL<TAB><ms>".
+//   celular.exe tela <porta> <chave|-> <passos> -> (Fase 10) abre UM canal WebSocket /tela/ws e roda os passos em sequencia, no mesmo canal.
+//                                                       <passos> = "<qualidade>:<mon>:<w>:<segundos>:<ok|semok>" separados por ';'. Cada passo manda a configuracao
+//                                                       {"mon":..,"w":..,"q":".."}, le quadros binarios por <segundos> e, com "ok", responde {"ok":1} a cada quadro.
+//                                                       Imprime por passo "PASSO<TAB>i<TAB>q<TAB>quadros<TAB>bytes-medios<TAB>ultimoLxA<TAB>segundos<TAB>jpeg|nao-jpeg" e, no fim, "FIM".
+//                                                       Se o servidor fechar o canal: "FECHOU<TAB>codigo" (codigo de saida 5). Recusa no upgrade: "RECUSADO<TAB>msg" (codigo 4).
 //                                                       "-" no lugar da chave = sem cookie. NUNCA grava a imagem em disco (so o cabecalho e as dimensoes do JPEG).
 //   celular.exe segundo <porta> <chave>              -> (Fase 9) conecta como OUTRO celular (outra chave), nao envia nada, imprime
 //                                                       "MSG<TAB><json>" por mensagem e "FECHOU<TAB><codigo>" ao fechar
@@ -40,6 +43,7 @@ using System.Net.Sockets;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using System.Threading.Channels;
 
 const string Host = "127.0.0.1";
 if (args.Length == 0) return Uso();
@@ -75,8 +79,8 @@ try
             return await Get(int.Parse(args[1]), args[2], args.Length > 3 && args[3] != "-" ? args[3] : null, args.Length > 4 && args[4] != "-" ? args[4] : null);
         case "ferramenta" when args.Length >= 4:
             return await Ferramenta(int.Parse(args[1]), args[2], args[3]);
-        case "tela" when args.Length >= 5:
-            return await Tela(int.Parse(args[1]), args[2], int.Parse(args[3]), int.Parse(args[4]), args.Length > 5 ? int.Parse(args[5]) : 1, args.Length > 6 ? int.Parse(args[6]) : 0);
+        case "tela" when args.Length >= 4:
+            return await Tela(int.Parse(args[1]), args[2], args[3]);
         case "arquivo" when args.Length >= 4:
             return await Arquivo(int.Parse(args[1]), args[2], args[3], args.Length > 4 ? args[4] : null);
         case "info" when args.Length >= 5:
@@ -85,6 +89,8 @@ try
             return await Segundo(int.Parse(args[1]), args[2]);
         case "segurar" when args.Length >= 4:
             return await Segurar(int.Parse(args[1]), args[2], int.Parse(args[3]), args.Length > 4 ? args[4] : null);
+        case "reconectar" when args.Length >= 4:
+            return await Reconectar(int.Parse(args[1]), args[2], int.Parse(args[3]), args.Length > 4 ? args[4] : null);
         default:
             return Uso();
     }
@@ -95,9 +101,71 @@ catch (Exception ex)
     return 2;
 }
 
+// Fase 10b: o celular "lembrado". Segura a conexao e, ao cair, tenta de novo na MESMA porta e com a MESMA chave, com a espera
+// crescente da pagina (0,5 / 1 / 2 / 4 / 5 s). Depois de cada falha consulta GET /sessao: so 401 viraria pareamento (aqui vira PAREAR e sai);
+// qualquer outra coisa continua tentando. NUNCA chama /parear. Saida: PRONTO, "CONECTOU<TAB>epoch" a cada conexao com estado,
+// "CAIU<TAB>epoch", "SESSAO<TAB>status|erro" e "PAREAR".
+static async Task<int> Reconectar(int porta, string chave, int segundos, string? arquivoParar)
+{
+    var relogio = Stopwatch.StartNew();
+    var tentativa = 0;
+    Console.WriteLine("PRONTO");
+    Console.Out.Flush();
+    bool Parar() => relogio.Elapsed.TotalSeconds >= segundos || (arquivoParar is not null && File.Exists(arquivoParar));
+    while (!Parar())
+    {
+        try
+        {
+            using var c = await Conectar(porta, chave);
+            var conectou = false;
+            using var cts = new CancellationTokenSource();
+            while (c.State == WebSocketState.Open && !Parar())
+            {
+                var leitura = Ler(c, cts.Token);
+                while (!leitura.IsCompleted && !Parar()) await Task.Delay(50);
+                if (!leitura.IsCompleted) { cts.Cancel(); try { await leitura; } catch { } break; }
+                var texto = await leitura;
+                if (texto is null) break;
+                if (!conectou && EhEstado(texto))
+                {
+                    conectou = true;
+                    tentativa = 0;
+                    Console.WriteLine($"CONECTOU\t{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}");
+                    Console.Out.Flush();
+                }
+            }
+            if (Parar()) { try { await c.CloseAsync(WebSocketCloseStatus.NormalClosure, "fim", new CancellationTokenSource(2000).Token); } catch { } break; }
+        }
+        catch (Exception) { }
+        Console.WriteLine($"CAIU\t{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}");
+        string status;
+        try
+        {
+            using var tcp = new TcpClient();
+            await tcp.ConnectAsync(Host, porta);
+            var st = tcp.GetStream();
+            await st.WriteAsync(Encoding.ASCII.GetBytes($"GET /sessao HTTP/1.1\r\nHost: {Host}:{porta}\r\nConnection: close\r\nCookie: mx={chave}\r\n\r\n"));
+            var buf = new byte[256];
+            using var cts2 = new CancellationTokenSource(3000);
+            var n = await st.ReadAsync(buf, cts2.Token);
+            var partes = Encoding.ASCII.GetString(buf, 0, n).Split("\r\n")[0].Split(' ');
+            status = partes.Length >= 2 ? partes[1] : "0";
+        }
+        catch (Exception) { status = "erro"; }
+        Console.WriteLine($"SESSAO\t{status}");
+        Console.Out.Flush();
+        if (status == "401") { Console.WriteLine("PAREAR"); Console.Out.Flush(); return 4; }
+        var espera = Math.Min(5000, 500 << Math.Min(tentativa, 4));
+        tentativa++;
+        var fim = relogio.ElapsedMilliseconds + espera;
+        while (relogio.ElapsedMilliseconds < fim && !Parar()) await Task.Delay(50);
+    }
+    return 0;
+}
+
 static int Uso()
 {
-    Console.Error.WriteLine("uso: parear <porta> <codigo> | estado <porta> <chave> | enviar <porta> <chave> <json> | ciclos <porta> <chave> <n> | get <porta> <caminho> [chave|-] [origin|-] | segurar <porta> <chave> <segundos> [arquivo-parar] | ferramenta <porta> <chave> <json> | segundo <porta> <chave> | tela <porta> <chave|-> <mon> <w> [n [periodo-ms]] | arquivo <porta> <chave> <caminho> [nome] | info <porta> <chave> <seg-ligado> <seg-depois>");
+    Console.Error.WriteLine("uso: parear <porta> <codigo> | estado <porta> <chave> | enviar <porta> <chave> <json> | ciclos <porta> <chave> <n> | get <porta> <caminho> [chave|-] [origin|-] | segurar <porta> <chave> <segundos> [arquivo-parar] | reconectar <porta> <chave> <segundos> [arquivo-parar] | ferramenta <porta> <chave> <json> | segundo <porta> <chave> | tela <porta> <chave|-> <q:mon:w:seg:ok|semok;...> | arquivo <porta> <chave> <caminho> [nome] | info <porta> <chave> <seg-ligado> <seg-depois>");
     return 2;
 }
 
@@ -234,7 +302,7 @@ static async Task<int> Get(int porta, string caminho, string? chave, string? ori
     sb.Append($"GET {caminho} HTTP/1.1\r\nHost: {Host}:{porta}\r\nConnection: close\r\n");
     if (chave is not null) sb.Append($"Cookie: mx={chave}\r\n");
     if (origin is not null) sb.Append($"Origin: {origin}\r\n");
-    if (caminho == "/ws") sb.Append("Upgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n");
+    if (caminho is "/ws" or "/tela/ws") sb.Append("Upgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n");
     sb.Append("\r\n");
     await stream.WriteAsync(Encoding.ASCII.GetBytes(sb.ToString()));
     var buffer = new byte[256];
@@ -439,29 +507,105 @@ static async Task<int> Segundo(int porta, string chave)
     return 0;
 }
 
-// Fase 9b: pede quadros de /tela com o cookie dado ("-" = sem cookie). A imagem so e lida para conferir cabecalho, tamanho e dimensoes: nunca vai para o disco.
-static async Task<int> Tela(int porta, string chave, int mon, int w, int n, int periodoMs)
+// Fase 10: canal /tela/ws (um so, com varios passos). A imagem so e lida para conferir cabecalho, tamanho e dimensoes: nunca vai para o disco.
+static async Task<int> Tela(int porta, string chave, string passosTxt)
 {
-    using var http = new HttpClient(new HttpClientHandler { UseCookies = false }) { Timeout = TimeSpan.FromSeconds(30) };
-    var total = Stopwatch.StartNew();
-    for (var i = 0; i < n; i++)
+    var passos = new List<(string Q, int Mon, int W, int Seg, bool Ok)>();
+    foreach (var t in passosTxt.Split(';', StringSplitOptions.RemoveEmptyEntries))
     {
-        var sw = Stopwatch.StartNew();
-        using var req = new HttpRequestMessage(HttpMethod.Get, $"http://{Host}:{porta}/tela?mon={mon}&w={w}");
-        if (chave != "-") req.Headers.TryAddWithoutValidation("Cookie", $"mx={chave}");
-        using var resp = await http.SendAsync(req);
-        var corpo = await resp.Content.ReadAsByteArrayAsync();
-        var tipo = resp.Content.Headers.ContentType?.MediaType ?? "-";
-        var jpeg = corpo.Length > 3 && corpo[0] == 0xFF && corpo[1] == 0xD8 && corpo[2] == 0xFF;
-        var (jw, jh) = jpeg ? DimensoesJpeg(corpo) : (0, 0);
-        Console.WriteLine($"{i}	{(int)resp.StatusCode}	{tipo}	{corpo.Length}	{jw}x{jh}	{sw.ElapsedMilliseconds}	{(jpeg ? "jpeg" : "nao-jpeg")}");
-        if (periodoMs > 0)
-        {
-            var falta = (i + 1) * periodoMs - (int)total.ElapsedMilliseconds; // ritmo fixo, nao acumula a demora de cada quadro
-            if (falta > 0) await Task.Delay(falta);
-        }
+        var p = t.Split(':');
+        passos.Add((p[0], int.Parse(p[1]), int.Parse(p[2]), int.Parse(p[3]), p.Length < 5 || p[4] != "semok"));
     }
-    if (n > 1) Console.WriteLine($"TOTAL	{total.ElapsedMilliseconds}");
+    using var ws = new ClientWebSocket();
+    if (chave != "-")
+    {
+        ws.Options.Cookies = new CookieContainer();
+        ws.Options.Cookies.Add(new Uri($"http://{Host}:{porta}/"), new Cookie("mx", chave));
+    }
+    ws.Options.SetRequestHeader("Origin", $"http://{Host}:{porta}");
+    try
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await ws.ConnectAsync(new Uri($"ws://{Host}:{porta}/tela/ws"), cts.Token);
+    }
+    catch (Exception ex) when (ex is WebSocketException or OperationCanceledException)
+    {
+        Console.WriteLine($"RECUSADO\t{ex.Message}");
+        return 4;
+    }
+
+    // Um unico leitor para o canal inteiro (cancelar um ReceiveAsync aborta o WebSocket): cada mensagem vira um item da fila.
+    var fila = Channel.CreateUnbounded<(bool Fechou, int Bytes, int W, int H, bool Jpeg)>();
+    var leitor = Task.Run(async () =>
+    {
+        var buf = new byte[4 * 1024 * 1024];
+        try
+        {
+            while (ws.State == WebSocketState.Open)
+            {
+                var len = 0;
+                WebSocketReceiveResult r;
+                do
+                {
+                    r = await ws.ReceiveAsync(new ArraySegment<byte>(buf, len, buf.Length - len), CancellationToken.None);
+                    if (r.MessageType == WebSocketMessageType.Close)
+                    {
+                        fila.Writer.TryWrite((true, (int)(ws.CloseStatus ?? 0), 0, 0, false));
+                        return;
+                    }
+                    len += r.Count;
+                } while (!r.EndOfMessage);
+                if (r.MessageType != WebSocketMessageType.Binary) continue;
+                var jpeg = len > 3 && buf[0] == 0xFF && buf[1] == 0xD8 && buf[2] == 0xFF;
+                var (jw, jh) = jpeg ? DimensoesJpeg(buf.AsSpan(0, len).ToArray()) : (0, 0);
+                fila.Writer.TryWrite((false, len, jw, jh, jpeg));
+            }
+        }
+        catch (Exception ex) when (ex is WebSocketException or OperationCanceledException or ObjectDisposedException)
+        {
+            fila.Writer.TryWrite((true, 1006, 0, 0, false));
+        }
+    });
+
+    var ok = Encoding.UTF8.GetBytes("{\"ok\":1}");
+    for (var i = 0; i < passos.Count; i++)
+    {
+        var ps = passos[i];
+        var cfg = Encoding.UTF8.GetBytes($"{{\"mon\":{ps.Mon},\"w\":{ps.W},\"q\":\"{ps.Q}\"}}");
+        await ws.SendAsync(cfg, WebSocketMessageType.Text, true, CancellationToken.None);
+        var relogio = Stopwatch.StartNew();
+        long quadros = 0, bytes = 0;
+        int ultW = 0, ultH = 0;
+        var todosJpeg = true;
+        while (true)
+        {
+            var resta = TimeSpan.FromSeconds(ps.Seg) - relogio.Elapsed;
+            if (resta <= TimeSpan.Zero) break;
+            using var cts = new CancellationTokenSource(resta);
+            bool tem;
+            try { tem = await fila.Reader.WaitToReadAsync(cts.Token); }
+            catch (OperationCanceledException) { break; }
+            if (!tem || !fila.Reader.TryRead(out var item)) break;
+            if (item.Fechou)
+            {
+                Console.WriteLine($"FECHOU\t{item.Bytes}");
+                return 5;
+            }
+            quadros++; bytes += item.Bytes; ultW = item.W; ultH = item.H;
+            if (!item.Jpeg) todosJpeg = false;
+            if (ps.Ok && ws.State == WebSocketState.Open) await ws.SendAsync(ok, WebSocketMessageType.Text, true, CancellationToken.None);
+        }
+        var medio = quadros > 0 ? bytes / quadros : 0;
+        Console.WriteLine($"PASSO\t{i}\t{ps.Q}\t{quadros}\t{medio}\t{ultW}x{ultH}\t{relogio.Elapsed.TotalSeconds.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)}\t{(todosJpeg ? "jpeg" : "nao-jpeg")}");
+    }
+    try
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        await ws.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "", cts.Token);
+        await Task.WhenAny(leitor, Task.Delay(3000));
+    }
+    catch (Exception ex) when (ex is WebSocketException or OperationCanceledException) { }
+    Console.WriteLine("FIM");
     return 0;
 }
 
