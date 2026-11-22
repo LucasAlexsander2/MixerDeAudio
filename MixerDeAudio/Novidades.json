@@ -1,0 +1,11 @@
+[
+  {
+    "versao": "1.1.0",
+    "itens": [
+      { "icone": "E772", "titulo": "Controle do PC pelo celular", "texto": "Pelo celular você liga ou desliga o PC, controla mouse e teclado, vê a tela, troca arquivos e usa atalhos." },
+      { "icone": "E7F4", "titulo": "Tela do PC mais fluida", "texto": "A tela do PC no celular ficou mais suave, aceita tela cheia e o celular fica lembrado depois de pareado." },
+      { "icone": "E895", "titulo": "Atualização pelo próprio app", "texto": "O app avisa quando há versão nova e atualiza com um clique, pela janelinha ou pelas Configurações." },
+      { "icone": "E789", "titulo": "Novidades", "texto": "Este cartão aparece uma vez a cada versão, para você saber o que mudou." }
+    ]
+  }
+]

@@ -57,6 +57,15 @@ public sealed record AppSettings
     /// <summary>Porta do servidor do celular (Fase 10, D12): 8750 a 8759; fora da faixa ou ausente vira 8750.</summary>
     public int PortaCelular { get; init; } = RemoteRules.FirstPort;
 
+    /// <summary>Procurar atualizações automaticamente (Fase 11, D5); ligada por padrão. Só procura, nunca baixa sozinho.</summary>
+    public bool AtualizarAuto { get; init; } = true;
+
+    /// <summary>Última versão cujo cartão de novidades já foi mostrado (Fase 11, D8).</summary>
+    public string? UltimaVersaoVista { get; init; }
+
+    /// <summary>Última versão nova que já avisou por balão (Fase 11, D6): o balão sai uma vez por versão.</summary>
+    public string? BalaoVersao { get; init; }
+
     public static AppSettings Default => new();
 
     /// <summary>Lê o JSON. Nulo, vazio, inválido ou de outra versão volta ao padrão (D1).</summary>
@@ -109,7 +118,14 @@ public sealed record AppSettings
             CelularLigado = CelularLigado, CodigoCelular = NormalizeCode(CodigoCelular), ChavesCelular = NormalizePhones(ChavesCelular),
             FerramentasCelular = RemoteTools.Normalize(FerramentasCelular),
             PortaCelular = RemoteRules.NormalizePort(PortaCelular),
+            AtualizarAuto = AtualizarAuto, UltimaVersaoVista = NormalizeVersion(UltimaVersaoVista), BalaoVersao = NormalizeVersion(BalaoVersao),
         };
+    }
+
+    private static string? NormalizeVersion(string? version)
+    {
+        var v = version?.Trim();
+        return string.IsNullOrEmpty(v) ? null : v;
     }
 
     private static string? NormalizeCode(string? code)

@@ -14,6 +14,9 @@ public sealed class SettingsStore
 
     public AppSettings Current => _current;
 
+    /// <summary>O <c>config.json</c> existia ao carregar (Fase 11, D8): sem ele, é instalação nova e o cartão de novidades não aparece.</summary>
+    public bool ExistedOnLoad { get; private set; }
+
     /// <summary>Avisa depois de cada mudança (na thread de quem mudou, a da tela).</summary>
     public event Action? Changed;
 
@@ -24,6 +27,7 @@ public sealed class SettingsStore
         {
             if (File.Exists(AppPaths.ConfigFile))
             {
+                store.ExistedOnLoad = true;
                 var text = File.ReadAllText(AppPaths.ConfigFile, Encoding.UTF8);
                 store._current = AppSettings.Parse(text, out var invalid);
                 if (invalid) Log.Write("ERRO config invalida, usando o padrao");

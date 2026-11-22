@@ -31,11 +31,20 @@ public partial class App : Application
     private bool _testPc;
     private PcController? _pc;
     private bool _exiting;
+    private Updater? _updater;
+    private UpdateController? _updates;
+    private DispatcherQueueTimer? _updateTimer;
 
     /// <summary>Fila da thread da tela, para receber a ativação redirecionada (que chega em outra thread).</summary>
     public static DispatcherQueue? UiQueue { get; private set; }
 
     public static App? Instance { get; private set; }
+
+    /// <summary>Atualização pelo próprio app (Fase 11): estado único lido pelas Configurações e pela faixa da janelinha.</summary>
+    internal static UpdateController? Updates => Instance?._updates;
+
+    /// <summary>Versão em execução (a instalada, pelo Velopack, ou a do assembly).</summary>
+    internal static string CurrentVersion => Instance?._updater?.CurrentVersion ?? "1.1.0";
 
     /// <summary>Servidor do celular (Fase 6), para a seção "Controle pelo celular" das Configurações.</summary>
     internal static RemoteServer? Remote => Instance?._remote;
@@ -95,8 +104,63 @@ public partial class App : Application
         _remote = new RemoteServer(_hub, Settings, UiQueue!, commandLine.CelularLocal);
         Settings.Changed += OnSettingsChanged;
         _remote.Apply();
+
+        StartUpdates();
         if (commandLine.Command is not (AppCommand.Default or AppCommand.None)) Execute(commandLine);
         if (!_hub.IsActive) ScheduleTrim();
+    }
+
+
+    /// <summary>
+    /// Atualização (Fase 11): cria o controle (um só) e, na cópia instalada e fora do <c>--teste-oculto</c>, conferência
+    /// automática 60 s depois de abrir e a cada 6 h (D5, D10). A conferência só procura; baixar e reiniciar são cliques.
+    /// </summary>
+    private void StartUpdates()
+    {
+        _updater = new Updater();
+        _updates = new UpdateController(_updater, PrepareRestart, RunOnUi);
+        _updates.Checked += OnUpdateChecked;
+        RememberVersionOnFreshInstall();
+        // D10: cópia não instalada ou modo de teste oculto: nada de timer e nada de rede.
+        if (_hiddenTest || !_updater.Installed) return;
+        _updateTimer = DispatcherQueue.GetForCurrentThread().CreateTimer();
+        _updateTimer.Interval = UpdateRules.FirstCheckDelay;
+        _updateTimer.IsRepeating = true;
+        _updateTimer.Tick += OnUpdateTick;
+        _updateTimer.Start();
+    }
+
+    private void OnUpdateTick(DispatcherQueueTimer sender, object args)
+    {
+        sender.Interval = UpdateRules.Interval;
+        if (_hiddenTest || _updates is null) return;
+        if (UpdateRules.ShouldCheck(DateTime.UtcNow, _updates.LastCheck, Settings.Current.AtualizarAuto))
+            _ = _updates.CheckAsync(manual: false);
+    }
+
+    /// <summary>Instalação nova (sem config): grava a versão como já vista, para o cartão de novidades não aparecer (D8).</summary>
+    private void RememberVersionOnFreshInstall()
+    {
+        if (!Settings.ExistedOnLoad && string.IsNullOrEmpty(Settings.Current.UltimaVersaoVista))
+            Settings.Update(s => s with { UltimaVersaoVista = CurrentVersion });
+    }
+
+    /// <summary>Fim de uma verificação: o balão só sai numa verificação automática, uma vez por versão (D6).</summary>
+    private void OnUpdateChecked(CheckResult result, bool manual)
+    {
+        if (result != CheckResult.NewVersion || manual || _updates is null) return;
+        var version = _updates.Status.NewVersion;
+        if (!UpdateRules.ShouldNotify(Settings.Current.BalaoVersao, version)) return;
+        Settings.Update(s => s with { BalaoVersao = version });
+        _tray?.ShowBalloon("Mixer de Áudio", $"Versão {version} disponível. Clique no ícone para atualizar.");
+        Log.Write($"atualizacao: versao {version} disponivel (balao mostrado)");
+    }
+
+    /// <summary>Antes de reiniciar para atualizar (D7): fecha direito, soltando a porta do celular e o ícone.</summary>
+    private void PrepareRestart()
+    {
+        Log.Write("atualizacao: reiniciando para aplicar");
+        Shutdown(exitApplication: false);
     }
 
     private void OnSettingsChanged()
@@ -274,18 +338,28 @@ public partial class App : Application
         RunOnUi(() =>
         {
             if (_exiting) return;
-            _exiting = true;
-            Log.Write("saindo");
-            _trimTimer?.Stop();
-            _pc?.Shutdown();
-            _remote?.Dispose();
-            _flyout?.CloseForReal();
-            _flyout = null;
-            _hub.ReleaseAll();
-            _tray?.Dispose();
-            _tray = null;
-            Application.Current.Exit();
+            // D7: com versão já baixada, "Sair" agenda a aplicação para o fim do processo.
+            _updates?.ApplyOnExit();
+            Shutdown(exitApplication: true);
         });
+    }
+
+    /// <summary>Fecha a janela, solta o celular e o áudio e remove o ícone; <paramref name="exitApplication"/> encerra o app (na tela).</summary>
+    private void Shutdown(bool exitApplication)
+    {
+        if (_exiting) return;
+        _exiting = true;
+        Log.Write("saindo");
+        _trimTimer?.Stop();
+        _updateTimer?.Stop();
+        _pc?.Shutdown();
+        _remote?.Dispose();
+        _flyout?.CloseForReal();
+        _flyout = null;
+        _hub.ReleaseAll();
+        _tray?.Dispose();
+        _tray = null;
+        if (exitApplication) Application.Current.Exit();
     }
 
     private static void RunOnUi(Action action)

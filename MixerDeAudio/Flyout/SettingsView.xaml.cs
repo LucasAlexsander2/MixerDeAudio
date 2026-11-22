@@ -17,9 +17,10 @@ public sealed partial class SettingsView : UserControl
 
     internal SettingsView(SettingsStore store, DeviceTracker devices, Remote.RemoteServer? remote = null)
     {
-        Model = new SettingsViewModel(store, devices, remote);
+        Model = new SettingsViewModel(store, devices, remote, App.Updates, App.CurrentVersion);
         InitializeComponent();
         FavoriteList.ItemsSource = Model.Favorites;
+        NotesList.ItemsSource = Model.NoteItems;
     }
 
     private void OnNewCodeClick(object sender, RoutedEventArgs e) => Model.NewCode();
@@ -28,12 +29,19 @@ public sealed partial class SettingsView : UserControl
 
     private void OnShortcutsFolderClick(object sender, RoutedEventArgs e) => Model.OpenShortcutsFolder();
 
+    private void OnUpdateCheckClick(object sender, RoutedEventArgs e) => Model.CheckNow();
+
+    private void OnUpdateDownloadClick(object sender, RoutedEventArgs e) => Model.DownloadUpdate();
+
+    private void OnUpdateRestartClick(object sender, RoutedEventArgs e) => Model.RestartToUpdate();
+
     private void OnBackClick(object sender, RoutedEventArgs e) => BackRequested?.Invoke();
 
     /// <summary>Solta os ouvintes do modelo ao voltar ou fechar.</summary>
     public void Release()
     {
         FavoriteList.ItemsSource = null;
+        NotesList.ItemsSource = null;
         Model.Dispose();
     }
 }

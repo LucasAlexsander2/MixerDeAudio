@@ -1,0 +1,56 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+env:
+  VPK_VERSION: 1.2.161
+  DOTNET_ROLL_FORWARD: Major  # deixa o vpk rodar no .NET 10 se o runtime dele não estiver no runner
+  REPO_URL: https://github.com/LucasAlexsander2/MixerDeAudio
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Versão a partir da tag
+        shell: bash
+        run: echo "VERSAO=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+
+      - name: Conferir novidades da versão
+        shell: bash
+        # Nenhuma versão sai sem a nota em Novidades.json (o modal "Novidades" depende dela).
+        run: |
+          if ! grep -q "\"versao\": *\"${VERSAO}\"" MixerDeAudio/Novidades.json; then
+            echo "::error::Falta a entrada da versão ${VERSAO} em MixerDeAudio/Novidades.json"
+            exit 1
+          fi
+
+      - name: Testes
+        run: dotnet test MixerDeAudio.Tests -c Release -v q --nologo
+
+      - name: Publicar (self-contained win-x64)
+        run: dotnet publish MixerDeAudio\MixerDeAudio.csproj -c Release -p:Platform=x64 -r win-x64 --self-contained -p:Version=${{ env.VERSAO }} -o publish
+
+      - name: Instalar vpk
+        run: dotnet tool install -g vpk --version ${{ env.VPK_VERSION }}
+
+      - name: Baixar versão anterior (para gerar o delta)
+        continue-on-error: true
+        run: vpk download github --repoUrl ${{ env.REPO_URL }} --token ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Empacotar
+        run: vpk pack -u MixerDeAudioApp -v ${{ env.VERSAO }} -p publish -e MixerDeAudio.exe --packTitle "Mixer de Áudio" -i MixerDeAudio\Assets\MixerDeAudio.ico
+
+      - name: Enviar para o GitHub Releases
+        run: vpk upload github --repoUrl ${{ env.REPO_URL }} --publish --releaseName "Mixer de Áudio ${{ env.VERSAO }}" --tag v${{ env.VERSAO }} --token ${{ secrets.GITHUB_TOKEN }}

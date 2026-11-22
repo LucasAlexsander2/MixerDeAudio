@@ -10,6 +10,22 @@ dotnet test MixerDeAudio.Tests -v q
 dotnet publish MixerDeAudio\MixerDeAudio.csproj -c Release -p:Platform=x64 -r win-x64 --self-contained -o publicado
 ```
 
+## Instalar
+
+Baixe o `MixerDeAudioApp-win-Setup.exe` na página de Releases (https://github.com/LucasAlexsander2/MixerDeAudio/releases) e execute. O app confere se há versão nova a cada 6 h e só atualiza depois do seu clique.
+
+## Publicar uma versão
+
+1. Acrescente a entrada da versão em `MixerDeAudio/Novidades.json` (o workflow recusa a publicação sem ela).
+2. Crie e envie a tag:
+
+```
+git tag vX.Y.Z
+git push origin vX.Y.Z
+```
+
+O GitHub Actions (`.github/workflows/release.yml`) roda os testes, publica, empacota com o Velopack e cria a Release.
+
 ## Controle do PC pelo celular (Fase 9)
 
 Com o controle pelo celular ligado (Configurações), a página do celular, na mesma rede de casa, ganha ferramentas para usar o PC à distância. Só um celular fica conectado por vez, e **cada grupo de ferramentas tem um interruptor nas Configurações, desligado por padrão**: energia (desligar, reiniciar, suspender, bloquear, com timer), monitores (projeção, apagar e acordar as telas), entrada (touchpad, texto, teclas, painel de apresentação e vídeo, manter a tela ligada), tela (imagem do PC, só depois de tocar em "Mostrar a tela"), janelas, atalhos (pasta `%LOCALAPPDATA%\MixerDeAudio\Atalhos`), transferência (área de transferência só de texto nos dois sentidos e envio de arquivo, até 500 MB, para `Downloads\Do celular`) e estado do PC (CPU, memória, tempo ligado, bateria e disco, mais o timer de sono da música). Com o celular desconectado ou o grupo desligado, nada novo roda.

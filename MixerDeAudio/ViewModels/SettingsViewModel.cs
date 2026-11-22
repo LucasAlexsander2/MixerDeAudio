@@ -19,6 +19,9 @@ using MixerDeAudio.Services;
 
 namespace MixerDeAudio.ViewModels;
 
+/// <summary>Um item do cartão "Novidades" (Fase 11, D8): o ícone (glifo da Segoe Fluent), o título e o texto.</summary>
+public sealed record NoteItemView(string Glyph, string Title, string Text);
+
 /// <summary>Uma saída na lista de favoritas da página de configurações (D9).</summary>
 public sealed class FavoriteItemViewModel : ObservableObject
 {
@@ -68,6 +71,8 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
     private readonly DeviceTracker _devices;
     private bool _rebuilding;
     private readonly RemoteServer? _remote;
+    private readonly UpdateController? _updates;
+    private readonly string _currentVersion;
     private readonly DispatcherQueue? _ui;
     private bool _startup;
     private bool _disposed;
@@ -79,11 +84,14 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
     private ImageSource? _remoteQr;
     private string? _qrUrl;
 
-    internal SettingsViewModel(SettingsStore store, DeviceTracker devices, RemoteServer? remote = null)
+    internal SettingsViewModel(SettingsStore store, DeviceTracker devices, RemoteServer? remote = null,
+        UpdateController? updates = null, string currentVersion = "1.1.0")
     {
         _store = store;
         _devices = devices;
         _remote = remote;
+        _updates = updates;
+        _currentVersion = currentVersion;
         _ui = DispatcherQueue.GetForCurrentThread();
         _startup = StartupRegistration.IsEnabled();
         RebuildFavorites();
@@ -94,6 +102,8 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
             _remote.StateChanged += OnRemoteStateChanged;
         }
         RefreshRemote();
+        if (_updates is not null) _updates.Changed += OnUpdateChanged;
+        LoadNotes();
     }
 
     public ObservableCollection<FavoriteItemViewModel> Favorites { get; } = new();
@@ -176,10 +186,85 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
         }
     }
 
+    // ---- Atualização (Fase 11, D5 a D8) ----
+
+    public ObservableCollection<NoteItemView> NoteItems { get; } = new();
+    public Visibility NotesVisibility { get; private set; } = Visibility.Collapsed;
+    public string NotesTitle { get; private set; } = "";
+
+    /// <summary>"Versão 1.1.0" da seção Atualização.</summary>
+    public string UpdateVersionText => $"Versão {_currentVersion}";
+
+    public string UpdateStatusText => _updates is null
+        ? "Atualização indisponível nesta cópia (não instalada)."
+        : UpdateRules.StatusText(_updates.Status, _updates.LastCheck is not null);
+
+    public bool UpdateAvailableHere => _updates is not null && _updates.Status.State != UpdateState.Unavailable;
+
+    /// <summary>"Procurar agora" funciona mesmo com a conferência automática desligada (D5).</summary>
+    public bool CanCheckNow => UpdateAvailableHere && _updates!.Status.State is UpdateState.Idle or UpdateState.Error or UpdateState.NewVersion;
+
+    public Visibility CheckVisibility => UpdateAvailableHere ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility DownloadVisibility => _updates?.Status.State == UpdateState.NewVersion ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility RestartVisibility => _updates?.Status.State == UpdateState.Ready ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility ProgressVisibility => _updates?.Status.State == UpdateState.Downloading ? Visibility.Visible : Visibility.Collapsed;
+    public double ProgressValue => _updates?.Status.Percent ?? 0;
+
+    public bool AutoUpdate
+    {
+        get => _store.Current.AtualizarAuto;
+        set
+        {
+            if (value == _store.Current.AtualizarAuto) return;
+            _store.Update(s => s with { AtualizarAuto = value });
+            Log.Write(value ? "atualizacao: conferencia automatica ligada" : "atualizacao: conferencia automatica desligada");
+            OnPropertyChanged();
+        }
+    }
+
+    public void CheckNow() => _ = _updates?.CheckAsync(manual: true);
+
+    public void DownloadUpdate() => _ = _updates?.DownloadAsync();
+
+    public void RestartToUpdate() => _updates?.Restart();
+
+    private void OnUpdateChanged()
+    {
+        if (_disposed) return;
+        foreach (var name in new[]
+        {
+            nameof(UpdateStatusText), nameof(CanCheckNow), nameof(CheckVisibility), nameof(DownloadVisibility),
+            nameof(RestartVisibility), nameof(ProgressVisibility), nameof(ProgressValue),
+        }) OnPropertyChanged(name);
+    }
+
+    /// <summary>Cartão "Novidades da versão X" (D8): uma vez, quando a versão atual é maior que a última vista; grava a versão vista.</summary>
+    private void LoadNotes()
+    {
+        var settings = _store.Current;
+        if (!UpdateRules.ShouldShowNotes(settings.UltimaVersaoVista, _currentVersion, _store.ExistedOnLoad)) return;
+        var notes = UpdateRules.NotesFor(NotesResource.Load(), _currentVersion);
+        if (notes is { Itens.Count: > 0 })
+        {
+            foreach (var item in notes.Itens)
+                NoteItems.Add(new NoteItemView(GlyphFrom(item.Icone), item.Titulo, item.Texto));
+            NotesTitle = $"Novidades da versão {_currentVersion}";
+            NotesVisibility = Visibility.Visible;
+        }
+        var version = _currentVersion;
+        _store.Update(s => s with { UltimaVersaoVista = version });
+        Log.Write($"novidades: cartao da versao {version} {(NotesVisibility == Visibility.Visible ? "mostrado" : "sem entrada")}");
+    }
+
+    private static string GlyphFrom(string hex) =>
+        int.TryParse(hex, System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out var code)
+            ? char.ConvertFromUtf32(code)
+            : "";
+
     // ---- Controle pelo celular (Fase 6, D17 e D18) ----
 
     /// <summary>Rodapé das Configurações (Fase 8, D15), lido do assembly.</summary>
-    public string VersionLabel { get; } = VersionText.Format(System.Reflection.Assembly.GetExecutingAssembly().GetName().Version);
+    public string VersionLabel => $"Versão {_currentVersion}";
 
     /// <summary>A seção só aparece quando o servidor existe (sempre, no app).</summary>
     public Visibility RemoteAvailableVisibility => _remote is not null ? Visibility.Visible : Visibility.Collapsed;
@@ -358,6 +443,7 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
     {
         _disposed = true;
         _devices.Changed -= OnDevicesChanged;
+        if (_updates is not null) _updates.Changed -= OnUpdateChanged;
         if (_remote is not null)
         {
             _remote.ConnectionsChanged -= OnConnectionsChanged;

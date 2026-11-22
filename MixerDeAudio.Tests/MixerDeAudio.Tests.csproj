@@ -38,6 +38,9 @@
     <Compile Include="..\MixerDeAudio\Audio\MediaMatcher.cs" Link="Audio\MediaMatcher.cs" />
     <Compile Include="..\MixerDeAudio\Services\AppSettings.cs" Link="Services\AppSettings.cs" />
     <Compile Include="..\MixerDeAudio\Services\StartupRules.cs" Link="Services\StartupRules.cs" />
+    <Compile Include="..\MixerDeAudio\Services\UpdateRules.cs" Link="Services\UpdateRules.cs" />
+    <Compile Include="..\MixerDeAudio\Services\UpdateController.cs" Link="Services\UpdateController.cs" />
+    <Compile Include="..\MixerDeAudio\Services\InnoMigration.cs" Link="Services\InnoMigration.cs" />
     <Compile Include="..\MixerDeAudio\Remote\RemoteRules.cs" Link="Remote\RemoteRules.cs" />
     <Compile Include="..\MixerDeAudio\Remote\RemoteProtocol.cs" Link="Remote\RemoteProtocol.cs" />
     <Compile Include="..\MixerDeAudio\Remote\RemoteTools.cs" Link="Remote\RemoteTools.cs" />
@@ -53,6 +56,10 @@
     <Compile Include="..\MixerDeAudio\Pc\FileNameRules.cs" Link="Pc\FileNameRules.cs" />
     <Compile Include="..\MixerDeAudio\Pc\PcInfo.cs" Link="Pc\PcInfo.cs" />
     <Compile Include="..\MixerDeAudio\Pc\ClipboardBridge.cs" Link="Pc\ClipboardBridge.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\MixerDeAudio\Novidades.json" Link="Novidades.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

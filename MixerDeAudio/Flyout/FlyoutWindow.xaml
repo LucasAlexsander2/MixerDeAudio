@@ -16,6 +16,28 @@
         <Grid x:Name="MainPage" RowSpacing="8">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- Faixa de atualização (Fase 11, D6): só com versão nova, baixando ou pronta -->
+        <Border x:Name="UpdateBanner" AutomationProperties.AutomationId="UpdateBanner" Visibility="Collapsed"
+                Margin="0,0,18,0" Padding="12,6,8,6" CornerRadius="6"
+                Background="{ThemeResource AccentFillColorDefaultBrush}">
+            <Grid ColumnSpacing="8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="UpdateBannerText" AutomationProperties.AutomationId="UpdateBannerText" VerticalAlignment="Center"
+                           Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" TextTrimming="CharacterEllipsis" />
+                <Button x:Name="UpdateBannerButton" Grid.Column="1" AutomationProperties.AutomationId="UpdateBannerButton"
+                        Click="OnUpdateBannerClick" MinWidth="0" Padding="12,4" />
+            </Grid>
+        </Border>
+
+        <Grid x:Name="MainBody" Grid.Row="1" RowSpacing="8">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
@@ -216,6 +238,7 @@
                            Text="Nenhum app com som agora." Opacity="0.8" Margin="0,8,0,0" />
             </Grid>
         </ScrollViewer>
+        </Grid>
         </Grid>
 
         <!-- Página de configurações: criada só quando é aberta (SettingsView) -->

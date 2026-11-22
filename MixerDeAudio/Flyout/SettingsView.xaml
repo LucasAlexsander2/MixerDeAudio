@@ -29,6 +29,34 @@
 
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,16,0">
             <StackPanel Spacing="20">
+                <!-- Novidades da versão (Fase 11, D8): uma vez depois de atualizar -->
+                <Border AutomationProperties.AutomationId="NotesCard" AutomationProperties.Name="{x:Bind Model.NotesTitle}"
+                        Visibility="{x:Bind Model.NotesVisibility}" Padding="12" CornerRadius="8"
+                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+                    <StackPanel Spacing="8">
+                        <TextBlock AutomationProperties.AutomationId="NotesTitle" Text="{x:Bind Model.NotesTitle}"
+                                   Style="{ThemeResource BodyStrongTextBlockStyle}" TextWrapping="Wrap" />
+                        <ItemsControl x:Name="NotesList" AutomationProperties.AutomationId="NotesList" AutomationProperties.AccessibilityView="Content">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:NoteItemView">
+                                    <Grid ColumnSpacing="10" Margin="0,4,0,4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="24" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <FontIcon Glyph="{x:Bind Glyph}" FontSize="16" VerticalAlignment="Top" Margin="0,2,0,0" />
+                                        <StackPanel Grid.Column="1">
+                                            <TextBlock Text="{x:Bind Title}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                            <TextBlock Text="{x:Bind Text}" TextWrapping="Wrap" Opacity="0.8" FontSize="12" />
+                                        </StackPanel>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+
                 <!-- Saídas favoritas -->
                 <StackPanel Spacing="4">
                     <TextBlock Text="Saídas favoritas (até 3)" Style="{ThemeResource BodyStrongTextBlockStyle}" />
@@ -73,6 +101,31 @@
                     <ToggleSwitch AutomationProperties.AutomationId="StartupSwitch" AutomationProperties.Name="Iniciar com o Windows"
                                   OnContent="Ligado" OffContent="Desligado"
                                   IsOn="{x:Bind Model.StartupEnabled, Mode=TwoWay}" />
+                </StackPanel>
+
+                <!-- Atualização (Fase 11, D6) -->
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Atualização" Style="{ThemeResource BodyStrongTextBlockStyle}" />
+                    <TextBlock AutomationProperties.AutomationId="UpdateVersion" Text="{x:Bind Model.UpdateVersionText}" />
+                    <TextBlock AutomationProperties.AutomationId="UpdateStatus" Text="{x:Bind Model.UpdateStatusText, Mode=OneWay}"
+                               TextWrapping="Wrap" Opacity="0.8" />
+                    <ProgressBar AutomationProperties.AutomationId="UpdateProgress" AutomationProperties.Name="Progresso do download"
+                                 Minimum="0" Maximum="100" Value="{x:Bind Model.ProgressValue, Mode=OneWay}"
+                                 Visibility="{x:Bind Model.ProgressVisibility, Mode=OneWay}" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button AutomationProperties.AutomationId="UpdateCheck" AutomationProperties.Name="Procurar agora"
+                                Content="Procurar agora" Click="OnUpdateCheckClick" IsEnabled="{x:Bind Model.CanCheckNow, Mode=OneWay}"
+                                Visibility="{x:Bind Model.CheckVisibility, Mode=OneWay}" />
+                        <Button AutomationProperties.AutomationId="UpdateDownload" AutomationProperties.Name="Atualizar"
+                                Content="Atualizar" Click="OnUpdateDownloadClick" Style="{ThemeResource AccentButtonStyle}"
+                                Visibility="{x:Bind Model.DownloadVisibility, Mode=OneWay}" />
+                        <Button AutomationProperties.AutomationId="UpdateRestart" AutomationProperties.Name="Reiniciar para atualizar"
+                                Content="Reiniciar para atualizar" Click="OnUpdateRestartClick" Style="{ThemeResource AccentButtonStyle}"
+                                Visibility="{x:Bind Model.RestartVisibility, Mode=OneWay}" />
+                    </StackPanel>
+                    <ToggleSwitch AutomationProperties.AutomationId="UpdateAuto" AutomationProperties.Name="Procurar atualizações automaticamente"
+                                  Header="Procurar atualizações automaticamente" OnContent="Ligado" OffContent="Desligado"
+                                  IsOn="{x:Bind Model.AutoUpdate, Mode=TwoWay}" />
                 </StackPanel>
 
                 <!-- Controle pelo celular (Fase 6, D17) -->

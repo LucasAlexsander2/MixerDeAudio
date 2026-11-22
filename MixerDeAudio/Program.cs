@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.Windows.AppLifecycle;
 using MixerDeAudio.Interop;
 using MixerDeAudio.Services;
+using Velopack;
 using Windows.ApplicationModel.Activation;
 
 namespace MixerDeAudio;
@@ -25,6 +26,14 @@ public static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        // Fase 11, D3: os hooks do Velopack vêm antes de tudo (antes do AppInstance e sem interface). Em publicado e bin
+        // (cópia não instalada) isto não faz nada; só roda de verdade na cópia instalada, chamada pelo próprio Velopack.
+        VelopackApp.Build()
+            .OnFirstRun(_ => { InnoMigration.Run(); StartupRegistration.RepointToCurrent(); })
+            .OnAfterUpdateFastCallback(_ => StartupRegistration.RepointToCurrent())
+            .OnBeforeUninstallFastCallback(_ => StartupRegistration.RemoveIfCurrent())
+            .Run();
+
         WinRT.ComWrappersSupport.InitializeComWrappers();
         StartupArguments = args;
 

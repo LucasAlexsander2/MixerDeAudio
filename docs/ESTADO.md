@@ -16,8 +16,10 @@ dotnet test MixerDeAudio.Tests -v q
 # Publicar (Release, ReadyToRun, self-contained) em publicado\
 dotnet publish MixerDeAudio\MixerDeAudio.csproj -c Release -p:Platform=x64 -r win-x64 --self-contained -o publicado -v q
 
-# Instalador: gera dist\MixerDeAudio-<versão>-x64-setup.exe (publica em dist\app, não mexe em publicado\)
-powershell -NoProfile -ExecutionPolicy Bypass -File tools\release\gerar.ps1
+# Publicar uma versão (Fase 11): acrescentar a entrada em MixerDeAudio\Novidades.json e enviar a tag;
+# o GitHub Actions (.github\workflows\release.yml) testa, publica, empacota com o Velopack e cria a Release
+git tag vX.Y.Z
+git push origin vX.Y.Z
 
 # Roteiro de tela e medição (usam publicado\)
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\testes\roteiro-f1.ps1
@@ -32,7 +34,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\testes\roteiro-f5.ps1 
 # Fase 9: roteiro por parte (a, b, c, d); o app sempre com --teste-oculto --celular-local --teste-pc
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\testes\roteiro-f9.ps1 -Parte a   # b tem -SemMedicao; c e d sao curtas
 # Fase 10: canal /tela/ws (casos 10.1 a 10.4; -SemMedicao pula o 10.4, cerca de 2,5 min). Substitui os casos 9.8 e 9.9, cuja rota /tela saiu
-powershell -NoProfile -ExecutionPolicy Bypass -File tools	estesoteiro-f10.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\testes\roteiro-f10.ps1
 # Medicao da Fase 9 (caso 9.16): servidor com os 8 grupos ligados, sem celular e com celular (50 conexoes)
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\testes\medir.ps1 -ComServidor -TodosGrupos
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\testes\medir.ps1 -ComCelular -TodosGrupos -Ciclos 50

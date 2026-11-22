@@ -122,6 +122,8 @@ public sealed partial class FlyoutWindow : Window
         UpdateNoDeviceText();
         ApplyTheme();
         App.Settings.Changed += ApplyTheme;
+        if (App.Updates is { } updates) updates.Changed += RefreshBanner;
+        RefreshBanner();
         _isActive = false;
     }
 
@@ -194,6 +196,7 @@ public sealed partial class FlyoutWindow : Window
         AppWindow.Hide();
         _isActive = false;
         App.Settings.Changed -= ApplyTheme;
+        if (App.Updates is { } updates) updates.Changed -= RefreshBanner;
         ViewModel.LayoutChanged -= OnLayoutChanged;
         _hub.MasterChanged -= Master.Apply;
         ReleaseSettings();
@@ -246,6 +249,30 @@ public sealed partial class FlyoutWindow : Window
             AppTheme.Dark => ElementTheme.Dark,
             _ => ElementTheme.Default,
         };
+    }
+
+    // ---- Faixa de atualização (Fase 11, D6) ----
+
+    /// <summary>Mostra ou esconde a faixa conforme o estado da atualização; a altura da janela acompanha.</summary>
+    private void RefreshBanner()
+    {
+        var status = App.Updates?.Status;
+        var info = status is null ? new BannerInfo(false, "", null) : UpdateRules.Banner(status);
+        var visibility = info.Visible ? Visibility.Visible : Visibility.Collapsed;
+        var changed = UpdateBanner.Visibility != visibility;
+        UpdateBanner.Visibility = visibility;
+        UpdateBannerText.Text = info.Text;
+        UpdateBannerButton.Content = info.Button ?? "";
+        UpdateBannerButton.Visibility = info.Button is null ? Visibility.Collapsed : Visibility.Visible;
+        if (changed) OnLayoutChanged();
+    }
+
+    private void OnUpdateBannerClick(object sender, RoutedEventArgs e)
+    {
+        var updates = App.Updates;
+        if (updates is null) return;
+        if (updates.Status.State == UpdateState.NewVersion) _ = updates.DownloadAsync();
+        else if (updates.Status.State == UpdateState.Ready) updates.Restart();
     }
 
     private void OnSettingsClick(object sender, RoutedEventArgs e) => ShowSettings();
