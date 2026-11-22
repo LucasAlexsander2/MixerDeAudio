@@ -1,5 +1,11 @@
 [
   {
+    "versao": "1.1.1",
+    "itens": [
+      { "icone": "E895", "titulo": "Primeira atualização pelo app", "texto": "Esta versão chegou pelo próprio Mixer: daqui em diante, cada versão nova aparece com um aviso e instala com um clique." }
+    ]
+  },
+  {
     "versao": "1.1.0",
     "itens": [
       { "icone": "E772", "titulo": "Controle do PC pelo celular", "texto": "Pelo celular você liga ou desliga o PC, controla mouse e teclado, vê a tela, troca arquivos e usa atalhos." },

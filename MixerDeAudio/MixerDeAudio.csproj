@@ -9,7 +9,7 @@
     <AssemblyName>MixerDeAudio</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\MixerDeAudio.ico</ApplicationIcon>
-    <Version>1.1.0</Version>
+    <Version>1.1.1</Version>
     <!-- O Main é nosso (Program.cs): instância única antes de qualquer janela -->
     <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
     <Platforms>x64;ARM64</Platforms>
