@@ -130,6 +130,12 @@ Mesmas regras de sempre:
 3. O Opus publica a `v1.1.1`, só com a nota de novidades.
 4. **Usuário:** o balão aparece (ou "Procurar agora"). Ele toca em "Atualizar" e vê a porcentagem, depois toca em "Reiniciar" e o app volta na 1.1.1 com o cartão de Novidades.
 
+Resultado do 6.3 (22/11/2026): passou.
+- Instalador `MixerDeAudioApp-win-Setup.exe` da release v1.1.0 rodado neste PC: instalou em `%LOCALAPPDATA%\MixerDeAudioApp`.
+- Migração do Inno 1.0.0: pasta `Programs\MixerDeAudio` removida; "Apps instalados" mostra só "Mixer de Áudio 1.1.0"; atalhos do menu Iniciar e da Área de Trabalho apontam para o app novo; `config.json` idêntico ao de antes (comparado por hash). "Iniciar com o Windows" já estava desligado, nada a manter.
+- Atualização pelo app: versão 1.1.1 publicada (commit 4dd0e85, tag v1.1.1, GitHub Actions ok, com pacote delta). O app avisou (log 15:01:14 "versao 1.1.1 disponivel"), o usuário atualizou e reiniciou (15:01:44); o app aberto é a 1.1.1. Usuário confirmou que funcionou.
+- Observação: no primeiro teste o usuário rodou por engano o instalador antigo `dist\MixerDeAudio-1.0.0-x64-setup.exe`; a pasta `dist\` é sobra do instalador Inno e pode ser apagada.
+
 ## 7. Resultados
 
 ### Parte 11a (o app) — Sonnet, 22/11/2026
