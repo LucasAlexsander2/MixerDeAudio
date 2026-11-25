@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 
 namespace MixerDeAudio.Pc;
@@ -20,6 +21,14 @@ public interface IPcActions
 
     /// <summary>Acorda as telas.</summary>
     void ScreensOn();
+
+    // ---- Brilho (Fase 12, D6 e D11): chamado só no BrightnessWorker, nunca na thread da tela ----
+
+    /// <summary>Brilho (0 a 100) de cada tela, na ordem de <c>ScreenCapture.Monitors()</c>; nulo onde não há DDC/CI.</summary>
+    IReadOnlyList<int?> ReadBrightness();
+
+    /// <summary>Muda o brilho da tela (0 a 100). Falso se o monitor recusou.</summary>
+    bool SetBrightness(int tela, int pct);
 
     // ---- Entrada (Fase 9b, D13 a D15): chamada na thread de rede do celular, nunca na da tela ----
 
@@ -86,6 +95,26 @@ public sealed class RecordingPc : IPcActions
     public void ScreensOff() => _sink("teste-pc: telas apagar");
 
     public void ScreensOn() => _sink("teste-pc: telas acordar");
+
+    // Brilho (D11): valores em memória (uma tela, começa em 50); o DDC real nunca é lido nem mudado no modo de teste
+    private readonly int?[] _brightness = { 50 };
+
+    public IReadOnlyList<int?> ReadBrightness()
+    {
+        lock (_brightness) return (int?[])_brightness.Clone();
+    }
+
+    public bool SetBrightness(int tela, int pct)
+    {
+        lock (_brightness)
+        {
+            if (tela < 0 || tela >= _brightness.Length) return false;
+            _brightness[tela] = pct;
+        }
+        System.Threading.Thread.Sleep(60); // imita a demora do DDC real (40 a 100 ms); só roda no worker, nunca na thread da tela
+        _sink($"teste-pc: brilho {tela} {pct}");
+        return true;
+    }
 
     // Entrada: só aqui (modo de teste, com textos de teste) o conteúdo vai para o log (D12)
     public void MouseMove(int dx, int dy) => _sink($"teste-pc: entrada mouse {dx} {dy}");

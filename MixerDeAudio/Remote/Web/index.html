@@ -169,6 +169,7 @@ body.tlfs{overflow:hidden}
     <div class="grid">
       <button id="scOff">Apagar as telas</button><button id="scOn">Acordar as telas</button>
     </div>
+    <div id="brBox"></div>
   </section>
   <section id="secSleep" hidden>
     <h2>Timer de sono</h2>
@@ -390,11 +391,12 @@ $('code').addEventListener('keydown',function(e){if(e.key==='Enter'&&this.value.
 $('go').addEventListener('click',function(){pair($('code').value);});
 
 /* ---------- sliders: 1 mensagem a cada 50 ms, valor final ao soltar, ignora o estado por 500 ms ---------- */
-function bindSlider(el,id,out,mk){
+function bindSlider(el,id,out,mk,gap){
+  gap=gap||50;
   function emit(final){
     var v=+el.value;out.textContent=v;
     pend[id]=v;
-    var now=Date.now(),wait=50-(now-(last[id]||0));
+    var now=Date.now(),wait=gap-(now-(last[id]||0));
     if(final||wait<=0){flush();}
     else if(!pend[id+'#']){pend[id+'#']=setTimeout(flush,wait);}
     function flush(){clearTimeout(pend[id+'#']);pend[id+'#']=0;last[id]=Date.now();if(pend[id]!=null){send(mk(pend[id]));pend[id]=null;}}
@@ -640,6 +642,7 @@ function renderPc(s){
   updPlan();
   var pj=pc.projecao||{},ok=pj.telas>=2;
   Array.prototype.forEach.call($('projBtns').children,function(b){b.disabled=!ok;b.classList.toggle('on',b.getAttribute('data-m')===pj.modo);b.setAttribute('aria-pressed',b.getAttribute('data-m')===pj.modo);});
+  if(f.monitores)renderBrilho(pc.brilho||[]);
   $('projInfo').textContent=ok?pj.telas+' telas ligadas ao PC.':'Só há uma tela ligada ao PC.';
   awakeOn=!!pc.acordado;
   $('awake').classList.toggle('on',awakeOn);$('awake').setAttribute('aria-pressed',awakeOn);
@@ -647,6 +650,29 @@ function renderPc(s){
   $('tlClk').hidden=$('tlTap').hidden=!inputOn;
   $('tlBarC1').hidden=$('tlBarC3').hidden=$('tlBarKb').hidden=!inputOn;
   renderMons(pc.monitores||[]);
+}
+
+/* ---------- brilho do monitor (Fase 12): uma barra por tela; 1 envio a cada 150 ms, valor final ao soltar ---------- */
+var brRows=[],brSig='';
+function renderBrilho(list){
+  var sig=list.map(function(b){return b.valor==null?'x':'o';}).join('');
+  var box=$('brBox');
+  if(sig!==brSig||brRows.length!==list.length){
+    brSig=sig;brRows=[];box.textContent='';
+    list.forEach(function(b){
+      var t=b.tela,name=list.length>1?'Brilho — Tela '+(t+1):'Brilho';
+      if(b.valor==null){
+        var w=el('p','dim','Esta tela não aceita ajuste de brilho (ative o DDC/CI no menu do monitor)'+(list.length>1?' — Tela '+(t+1):'')+'.');
+        box.appendChild(w);brRows.push(null);return;
+      }
+      var lb=el('label','lbl',name),sl=el('input'),val=el('span','val'),line=el('div','sl'),id='br'+t;
+      sl.type='range';sl.min=0;sl.max=100;sl.step=1;sl.setAttribute('aria-label',name);
+      line.append(sl,val);box.append(lb,line);
+      bindSlider(sl,id,val,function(v){return{t:'brilho',tela:t,valor:v};},150);
+      brRows.push({sl:sl,val:val,id:id});
+    });
+  }
+  list.forEach(function(b,i){var r=brRows[i];if(r&&b.valor!=null)setSlider(r.sl,r.val,r.id,b.valor);});
 }
 
 /* ---------- estado do PC (Fase 9d, D27): só é pedido com a aba PC aberta ---------- */

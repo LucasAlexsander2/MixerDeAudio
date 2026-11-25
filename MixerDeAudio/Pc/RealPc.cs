@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Threading.Tasks;
@@ -47,6 +48,10 @@ internal sealed class RealPc : IPcActions
         NativeMethods.MoveMouseBy(1, 0);
         NativeMethods.MoveMouseBy(-1, 0);
     }
+
+    public IReadOnlyList<int?> ReadBrightness() => Brightness.Read();
+
+    public bool SetBrightness(int tela, int pct) => Brightness.Set(tela, pct);
 
     public void MouseMove(int dx, int dy) => InputSender.MouseMove(dx, dy);
     public void MouseClick(MouseButton button, bool doubleClick) => InputSender.MouseClick(button, doubleClick);

@@ -85,7 +85,7 @@ public static class RemoteCommandGroups
     public static string? GroupOf(RemoteCommand command) => command switch
     {
         PowerCommand or PowerCancelCommand => RemoteTools.Power,
-        ProjectionCommand or ScreensCommand => RemoteTools.Display,
+        ProjectionCommand or ScreensCommand or BrightnessCommand => RemoteTools.Display,
         InputCommand or AwakeCommand => RemoteTools.Input,
         WindowsCommand or WindowActionCommand => RemoteTools.Windows,
         ShortcutCommand => RemoteTools.Shortcuts,

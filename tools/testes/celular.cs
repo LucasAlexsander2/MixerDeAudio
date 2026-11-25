@@ -85,6 +85,8 @@ try
             return await Arquivo(int.Parse(args[1]), args[2], args[3], args.Length > 4 ? args[4] : null);
         case "info" when args.Length >= 5:
             return await Info(int.Parse(args[1]), args[2], int.Parse(args[3]), int.Parse(args[4]));
+        case "brilhorajada" when args.Length >= 6:
+            return await BrilhoRajada(int.Parse(args[1]), args[2], int.Parse(args[3]), int.Parse(args[4]), int.Parse(args[5]));
         case "segundo" when args.Length >= 3:
             return await Segundo(int.Parse(args[1]), args[2]);
         case "segurar" when args.Length >= 4:
@@ -165,7 +167,7 @@ static async Task<int> Reconectar(int porta, string chave, int segundos, string?
 
 static int Uso()
 {
-    Console.Error.WriteLine("uso: parear <porta> <codigo> | estado <porta> <chave> | enviar <porta> <chave> <json> | ciclos <porta> <chave> <n> | get <porta> <caminho> [chave|-] [origin|-] | segurar <porta> <chave> <segundos> [arquivo-parar] | reconectar <porta> <chave> <segundos> [arquivo-parar] | ferramenta <porta> <chave> <json> | segundo <porta> <chave> | tela <porta> <chave|-> <q:mon:w:seg:ok|semok;...> | arquivo <porta> <chave> <caminho> [nome] | info <porta> <chave> <seg-ligado> <seg-depois>");
+    Console.Error.WriteLine("uso: parear <porta> <codigo> | estado <porta> <chave> | enviar <porta> <chave> <json> | ciclos <porta> <chave> <n> | get <porta> <caminho> [chave|-] [origin|-] | segurar <porta> <chave> <segundos> [arquivo-parar] | reconectar <porta> <chave> <segundos> [arquivo-parar] | ferramenta <porta> <chave> <json> | brilhorajada <porta> <chave> <tela> <de> <ate> | segundo <porta> <chave> | tela <porta> <chave|-> <q:mon:w:seg:ok|semok;...> | arquivo <porta> <chave> <caminho> [nome] | info <porta> <chave> <seg-ligado> <seg-depois>");
     return 2;
 }
 
@@ -369,7 +371,7 @@ static async Task<int> Ferramenta(int porta, string chave, string json)
     }
     if (tipo is not ("energia" or "energiaCancelar" or "projecao" or "telas" or "atualizar" or "desconectar"
         or "mouse" or "clique" or "botao" or "rolar" or "texto" or "tecla" or "mouseAbs" or "acordado"
-        or "janelas" or "janela" or "atalho" or "sono" or "assinar" or "clipLer" or "clipGravar"))
+        or "janelas" or "janela" or "atalho" or "sono" or "assinar" or "clipLer" or "clipGravar" or "brilho"))
     {
         Console.Error.WriteLine($"RECUSADO: '{tipo}' nao e um comando de ferramenta permitido.");
         return 3;
@@ -400,6 +402,25 @@ static async Task<int> Ferramenta(int porta, string chave, string json)
             }
         }
         catch (WebSocketException) { }
+    }
+    Console.WriteLine("enviado");
+    return 0;
+}
+
+// Fase 12: rajada de comandos de brilho no MESMO canal (sem pausa entre eles), para provar o agrupamento do worker.
+// Confere "teste":true antes; sem ele RECUSA (codigo 3) sem enviar nada. Manda {"t":"brilho","tela":T,"valor":V} para V de "de" a "ate".
+static async Task<int> BrilhoRajada(int porta, string chave, int tela, int de, int ate)
+{
+    var (c, estado) = await ConectarDeTeste(porta, chave);
+    if (c is null) return 3;
+    using (c)
+    {
+        for (var v = de; v <= ate; v++)
+        {
+            var json = "{\"t\":\"brilho\",\"tela\":" + tela + ",\"valor\":" + v + "}";
+            await c.SendAsync(Encoding.UTF8.GetBytes(json), WebSocketMessageType.Text, true, CancellationToken.None);
+        }
+        await Task.Delay(1500); // tempo para o app processar antes de fechar
     }
     Console.WriteLine("enviado");
     return 0;

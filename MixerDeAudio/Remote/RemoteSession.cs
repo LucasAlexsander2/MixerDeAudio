@@ -165,7 +165,7 @@ internal sealed class RemoteSession
             _hub.RouteChanged += OnRouteChanged;
             _hub.MediaChanged += OnMediaChanged;
             App.Settings.Changed += OnSettingsChanged;
-            if (HasTools()) App.Pc.Changed += OnPcChanged;
+            if (HasTools()) { App.Pc.Changed += OnPcChanged; App.Pc.BrightnessFailed += OnBrightnessFailed; }
             _pcHooked = HasTools();
             if (RemoteTools.IsEnabled(App.Settings.Current.FerramentasCelular, RemoteTools.Display)) App.Pc.RefreshProjection();
             SyncInput();
@@ -200,7 +200,7 @@ internal sealed class RemoteSession
             _hub.RouteChanged -= OnRouteChanged;
             _hub.MediaChanged -= OnMediaChanged;
             App.Settings.Changed -= OnSettingsChanged;
-            if (_pcHooked) App.Pc.Changed -= OnPcChanged;
+            if (_pcHooked) { App.Pc.Changed -= OnPcChanged; App.Pc.BrightnessFailed -= OnBrightnessFailed; }
             _pcHooked = false;
             DisableInput();
             StopWindows();
@@ -227,6 +227,7 @@ internal sealed class RemoteSession
         if (_attached && !_pcHooked && HasTools())
         {
             App.Pc.Changed += OnPcChanged;
+            App.Pc.BrightnessFailed += OnBrightnessFailed;
             _pcHooked = true;
         }
         if (_attached)
@@ -371,6 +372,8 @@ internal sealed class RemoteSession
 
     private void OnPcChanged() => MarkDirty();
 
+    private void OnBrightnessFailed(int tela) => Post(RemoteProtocol.BuildNotice("Não foi possível mudar o brilho desta tela"));
+
     private static bool HasTools() => App.Settings.Current.FerramentasCelular.Count > 0;
 
     /// <summary>Várias mudanças seguidas viram uma mensagem só, no máximo uma a cada 50 ms.</summary>
@@ -474,10 +477,17 @@ internal sealed class RemoteSession
             screens = new List<RemoteScreen>();
             foreach (var m in ScreenCapture.Monitors()) screens.Add(new RemoteScreen(m.Index, m.Width, m.Height, m.Primary));
         }
+        List<RemoteBrightness>? brightness = null;
+        if (display)
+        {
+            brightness = new List<RemoteBrightness>();
+            var values = pc.BrightnessValues;
+            for (var i = 0; i < values.Count; i++) brightness.Add(new RemoteBrightness(i, values[i]));
+        }
         RemoteSleep? sleep = null;
         if (infoOn && pc.Sleep is { } sp)
             sleep = new RemoteSleep(sp.DueAt.ToUnixTimeMilliseconds(), (int)Math.Ceiling((sp.DueAt - DateTimeOffset.UtcNow).TotalSeconds));
-        return new RemotePcState(power, rp, pj, input, input && pc.Awake, screens, shortcuts, infoOn, sleep);
+        return new RemotePcState(power, rp, pj, input, input && pc.Awake, screens, shortcuts, infoOn, sleep, brightness);
     }
 
     internal const string MediaKeyPrefix = "midia:";
@@ -564,6 +574,9 @@ internal sealed class RemoteSession
                 break;
             case ScreensCommand sc:
                 if (sc.Off) App.Pc.ScreensOff(); else App.Pc.ScreensOn();
+                break;
+            case BrightnessCommand br:
+                App.Pc.RequestBrightness(br.Screen, br.Percent);
                 break;
             case AwakeCommand aw:
                 App.Pc.SetAwake(aw.On);

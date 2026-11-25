@@ -28,6 +28,9 @@ public sealed record RemotePower(string Action, long AtMs, int RemainingSeconds)
 /// <summary>Projeção atual (Fase 9, D9): modo (nulo se o Windows não disse) e quantas telas estão ligadas.</summary>
 public sealed record RemoteProjection(string? Mode, int Screens);
 
+/// <summary>Brilho de uma tela (Fase 12, D10): índice e porcentagem; <paramref name="Value"/> nulo = tela sem DDC/CI.</summary>
+public sealed record RemoteBrightness(int Screen, int? Value);
+
 /// <summary>Uma tela para "ver a tela" (Fase 9b, D18): índice, tamanho em pixels e se é a principal.</summary>
 public sealed record RemoteScreen(int Index, int Width, int Height, bool Primary);
 
@@ -39,7 +42,8 @@ public sealed record RemoteScreen(int Index, int Width, int Height, bool Primary
 /// </summary>
 public sealed record RemotePcState(bool PowerOn = false, RemotePower? Power = null, RemoteProjection? Projection = null,
     bool InputOn = false, bool Awake = false, IReadOnlyList<RemoteScreen>? Screens = null,
-    IReadOnlyList<string>? Shortcuts = null, bool InfoOn = false, RemoteSleep? Sleep = null);
+    IReadOnlyList<string>? Shortcuts = null, bool InfoOn = false, RemoteSleep? Sleep = null,
+    IReadOnlyList<RemoteBrightness>? Brightness = null);
 
 /// <summary>Timer de sono em andamento (Fase 9c, D24): horário em que a música para (epoch ms) e segundos que faltam.</summary>
 public sealed record RemoteSleep(long AtMs, int RemainingSeconds);
@@ -67,6 +71,8 @@ public sealed record PowerCancelCommand : RemoteCommand;
 public sealed record ProjectionCommand(ProjectionMode Mode) : RemoteCommand;
 /// <summary>Apagar (<c>Off</c> verdadeiro) ou acordar as telas.</summary>
 public sealed record ScreensCommand(bool Off) : RemoteCommand;
+/// <summary>Brilho da tela <c>Screen</c> (Fase 12, D10): <c>Percent</c> já cortado em 0 a 100.</summary>
+public sealed record BrightnessCommand(int Screen, int Percent) : RemoteCommand;
 
 /// <summary>Comandos do grupo entrada que rodam na thread de rede, sem passar pela fila da tela (Fase 9b, D13).</summary>
 public abstract record InputCommand : RemoteCommand;
@@ -218,6 +224,18 @@ public static class RemoteProtocol
                     if (pj.Mode is null) w.WriteNull("modo"); else w.WriteString("modo", pj.Mode);
                     w.WriteNumber("telas", Math.Max(0, pj.Screens));
                     w.WriteEndObject();
+                }
+                if (pc.Brightness is { } brs)
+                {
+                    w.WriteStartArray("brilho");
+                    foreach (var b in brs)
+                    {
+                        w.WriteStartObject();
+                        w.WriteNumber("tela", b.Screen);
+                        if (b.Value is { } bv) w.WriteNumber("valor", BrightnessRules.ClampPercent(bv)); else w.WriteNull("valor");
+                        w.WriteEndObject();
+                    }
+                    w.WriteEndArray();
                 }
                 if (pc.InputOn) w.WriteBoolean("acordado", pc.Awake);
                 if (pc.Shortcuts is { } sh)
@@ -437,6 +455,12 @@ public static class RemoteProtocol
                     if (!Str(root, "acao", out var tacao)) return ParseStatus.InvalidFields;
                     if (tacao != "apagar" && tacao != "acordar") return ParseStatus.InvalidFields;
                     command = new ScreensCommand(tacao == "apagar");
+                    return ParseStatus.Ok;
+                case "brilho":
+                    // tela inteira >= 0 e valor numérico (cortado em 0 a 100)
+                    if (!root.TryGetProperty("tela", out var btEl) || btEl.ValueKind != JsonValueKind.Number || !btEl.TryGetInt32(out var bt) || bt < 0) return ParseStatus.InvalidFields;
+                    if (!Num(root, "valor", out var bv2)) return ParseStatus.InvalidFields;
+                    command = new BrightnessCommand(bt, bv2);
                     return ParseStatus.Ok;
                 case "mouse":
                     if (!Dbl(root, "dx", out var mdx) || !Dbl(root, "dy", out var mdy)) return ParseStatus.InvalidFields;

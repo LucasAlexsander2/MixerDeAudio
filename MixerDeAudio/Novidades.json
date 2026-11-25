@@ -1,5 +1,11 @@
 [
   {
+    "versao": "1.2.0",
+    "itens": [
+      { "icone": "E706", "titulo": "Brilho do monitor pelo celular", "texto": "Na aba PC do celular, em Monitores, uma barra de 0 a 100 muda o brilho de verdade do monitor (monitores com DDC/CI)." }
+    ]
+  },
+  {
     "versao": "1.1.1",
     "itens": [
       { "icone": "E895", "titulo": "Primeira atualização pelo app", "texto": "Esta versão chegou pelo próprio Mixer: daqui em diante, cada versão nova aparece com um aviso e instala com um clique." }

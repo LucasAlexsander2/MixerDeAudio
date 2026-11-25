@@ -21,6 +21,7 @@ internal sealed class PcController
     private readonly Action<string, string> _balloon;
     private readonly PowerTimer _power = new();
     private IPcActions? _actions;
+    private BrightnessWorker? _brightness;
     private DispatcherQueueTimer? _timer;
     private ProjectionInfo _projection;
     private bool _hadDisplay;
@@ -162,6 +163,33 @@ internal sealed class PcController
     {
         _projection = DisplayTopology.Read();
         Changed?.Invoke();
+        Worker().Refresh(); // Fase 12, D8: a leitura do brilho roda no worker e avisa por Changed
+    }
+
+    // ---- Brilho (Fase 12, D6 a D8 e D12) ----
+
+    /// <summary>Último brilho conhecido de cada tela (0 a 100; nulo = sem DDC/CI). Vazio até a primeira leitura.</summary>
+    public IReadOnlyList<int?> BrightnessValues => _brightness?.Values ?? Array.Empty<int?>();
+
+    /// <summary>Pede o brilho da tela (cortado em 0 a 100); o worker junta os pedidos e aplica um por vez. Thread da tela.</summary>
+    public void RequestBrightness(int tela, int pct) => Worker().Request(tela, pct);
+
+    /// <summary>A escrita do brilho falhou na tela dada (D12). Chamado na thread da tela.</summary>
+    public event Action<int>? BrightnessFailed;
+
+    private BrightnessWorker Worker()
+    {
+        if (_brightness is { } b) return b;
+        var actions = Actions;
+        b = new BrightnessWorker(actions.ReadBrightness, actions.SetBrightness);
+        b.Changed += () => _ui.TryEnqueue(() => Changed?.Invoke());
+        b.Failed += tela =>
+        {
+            Log.Write($"ERRO celular: brilho da tela {tela}");
+            _ui.TryEnqueue(() => BrightnessFailed?.Invoke(tela));
+        };
+        _brightness = b;
+        return b;
     }
 
     /// <summary>Troca a projeção. Devolve falso se o Windows recusou.</summary>
@@ -482,6 +510,7 @@ internal sealed class PcController
         Disarm();
         SetAwake(false, "saindo do app");
         CancelSleep("saindo do app");
+        _brightness?.Dispose();
         _windows?.Clear();
         _files = null;
     }
