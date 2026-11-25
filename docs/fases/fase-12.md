@@ -122,4 +122,4 @@ O roteiro usa BackupConfig e RestoreConfig, reabre o app do usuário no fim e nu
 - Diff conferido: worker (um comando DDC por vez, último valor por tela), interop `dxva2` (PHYSICAL_MONITOR com pack 1, handles soltos a cada operação), ligação na sessão e no estado. Sem problemas.
 - Navegador embutido (app de teste, grupo `monitores`): a barra "Brilho" aparece abaixo de "Apagar as telas"; arraste de 50 a 10 em 0,8 s gerou 6 envios a cada ~150 ms + o final; config restaurada e app do usuário reaberto.
 - Observação menor: o valor final repetido é reenviado ao monitor (um comando DDC a mais); inofensivo.
-- DDC real conferido à parte, com o usuário: leitura 80 e escritas 25 e 10 confirmadas no monitor (fora do app). Falta o teste do usuário pelo celular com a versão publicada.
+- DDC real conferido à parte, com o usuário: leitura 80 e escritas 25 e 10 confirmadas no monitor (fora do app). Versão 1.2.0 publicada (commit e59efd6); teste do usuário pelo celular no monitor real aprovado em 25/11/2026.
