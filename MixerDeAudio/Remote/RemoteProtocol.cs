@@ -486,7 +486,22 @@ public static class RemoteProtocol
                     command = new TextCommand(InputRules.LimitText(txt));
                     return ParseStatus.Ok;
                 case "tecla":
-                    if (!Str(root, "k", out var key) || !InputRules.IsKnownKey(key)) return ParseStatus.InvalidFields;
+                    if (!Str(root, "k", out var key)) return ParseStatus.InvalidFields;
+                    if (root.TryGetProperty("mods", out var modsEl))
+                    {
+                        // Fase 15c, D15: modificadores presos; só com tecla da lista fixa, o resto é recusado
+                        if (modsEl.ValueKind != JsonValueKind.Array || modsEl.GetArrayLength() > InputRules.MaxMods) return ParseStatus.InvalidFields;
+                        var modList = new List<string>();
+                        foreach (var me in modsEl.EnumerateArray())
+                        {
+                            if (me.ValueKind != JsonValueKind.String || me.GetString() is not { } ms) return ParseStatus.InvalidFields;
+                            modList.Add(ms);
+                        }
+                        if (!InputRules.TryCombo(key, modList, out var comboName, out _)) return ParseStatus.InvalidFields;
+                        command = new KeyCommand(comboName);
+                        return ParseStatus.Ok;
+                    }
+                    if (!InputRules.IsKnownKey(key)) return ParseStatus.InvalidFields;
                     command = new KeyCommand(key.ToLowerInvariant());
                     return ParseStatus.Ok;
                 case "mouseAbs":

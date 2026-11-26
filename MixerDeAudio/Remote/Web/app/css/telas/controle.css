@@ -1,1 +1,28 @@
-/* Estilos da tela Controle (parte 15c); vazio na Fase 15.0. */
+/* Estilos da tela Controle (parte 15c) e do teclado do PC (teclado-pc.js), usado também pela Tela do PC. Só tokens. */
+.controle .ctl-modos{flex:none;overflow-x:auto;scrollbar-width:none;margin:0 calc(var(--margem) * -1);padding:2px var(--margem) 8px}
+.controle .ctl-modos::-webkit-scrollbar{display:none}
+.controle .ctl-modos .chips{flex-wrap:nowrap;width:max-content}
+.controle .ctl-modos .chip{flex:none}
+.controle .ctl-corpo{flex:1 0 auto;display:flex;flex-direction:column;min-height:0}
+.controle .ctl-painel{display:flex;flex-direction:column;gap:var(--espaco)}
+.controle .ctl-tp{flex:1}
+.controle .ctl-sens{display:flex;align-items:center;justify-content:space-between;gap:var(--espaco);flex-wrap:wrap}
+.controle .ctl-grandes .botao-grande{min-height:120px}
+.controle .ctl-play{min-height:140px}
+.controle .ctl-acordado{flex:none;margin:12px 0 4px;padding:2px 14px;border-radius:var(--canto-cartao);background:var(--surface);border:1px solid var(--line)}
+
+/* teclado do PC */
+.tec-grade{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;flex-shrink:0}
+.tec-grade .botao{padding:0 4px;min-width:0}
+.tec-letras{grid-template-columns:repeat(5,minmax(0,1fr))}
+.tec-mods{flex-shrink:0}
+.tec-mods .chip{flex:1;justify-content:center}
+.tec-faixa{display:flex;flex-shrink:0;gap:8px;overflow-x:auto;scrollbar-width:none;padding:2px 0 6px;touch-action:pan-x pan-y}
+.tec-faixa::-webkit-scrollbar{display:none}
+.tec-faixa .chip{flex:none}
+.tec-texto{display:flex;gap:var(--espaco);align-items:center;flex-shrink:0}
+.tec-texto.multi{flex-direction:column;align-items:stretch}
+.tec-texto input,.tec-texto textarea{flex:1;min-width:0;border-radius:var(--canto-botao);border:1px solid var(--line);background:var(--surface);color:var(--fg);font-family:var(--sans);font-size:16px;padding:10px 12px;user-select:text;-webkit-user-select:text}
+.tec-texto textarea{resize:none;line-height:1.4}
+.tec-texto input{height:48px}
+.tec-texto input::placeholder,.tec-texto textarea::placeholder{color:var(--muted)}

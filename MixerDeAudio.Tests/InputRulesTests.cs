@@ -355,4 +355,116 @@ public class InputRulesTests
             "teste-pc: acordado on",
         }, linhas);
     }
+
+    // ---- Fase 15c, D15: teclas com modificadores presos ----
+
+    [Fact]
+    public void Combo_CtrlC_VemDaLetraEDoModificador()
+    {
+        Assert.True(InputRules.TryCombo("c", new[] { "ctrl" }, out var nome, out var e));
+        Assert.Equal("ctrl+c", nome);
+        Assert.Equal(new[] { new KeyEvent(false, 0x11, false), new KeyEvent(false, 0x43, false), new KeyEvent(false, 0x43, true), new KeyEvent(false, 0x11, true) }, e);
+        Assert.True(InputRules.TryKey("ctrl+c", out var igual));
+        Assert.Equal(igual, e);
+    }
+
+    [Fact]
+    public void Combo_VariosModificadores_NaOrdemFixaESoltaAoContrario()
+    {
+        Assert.True(InputRules.TryCombo("LEFT", new[] { "Win", "SHIFT", "ctrl", "ctrl" }, out var nome, out var e));
+        Assert.Equal("ctrl+shift+win+left", nome);
+        Assert.Equal(new ushort[] { 0x11, 0x10, 0x5B, 0x25, 0x25, 0x5B, 0x10, 0x11 }, e.Select(k => k.Code));
+        Assert.True(e[2].Extended); // Win
+        Assert.True(e[3].Extended); // seta
+    }
+
+    [Fact]
+    public void Combo_ListaVazia_ValeSoATeclaDaLista()
+    {
+        Assert.True(InputRules.TryCombo("enter", Array.Empty<string>(), out var nome, out var e));
+        Assert.Equal("enter", nome);
+        Assert.Equal(2, e.Count);
+        Assert.False(InputRules.TryCombo("c", Array.Empty<string>(), out _, out var vazio)); // "c" sozinha não está na lista
+        Assert.Empty(vazio);
+    }
+
+    [Theory]
+    [InlineData("q", "ctrl")]              // letra fora das dos atalhos
+    [InlineData("format", "ctrl")]         // tecla fora da lista
+    [InlineData("alt+tab", "shift")]       // nome composto não vale com modificador
+    [InlineData("c", "meta")]              // modificador desconhecido
+    [InlineData("c", "")]
+    [InlineData("1", "ctrl")]
+    public void Combo_Recusa(string tecla, string mod)
+    {
+        Assert.False(InputRules.TryCombo(tecla, new[] { mod }, out var nome, out var e));
+        Assert.Equal("", nome);
+        Assert.Empty(e);
+    }
+
+    [Fact]
+    public void Combo_NuncaCtrlAltDelete()
+    {
+        Assert.False(InputRules.TryCombo("delete", new[] { "ctrl", "alt" }, out _, out _));
+        Assert.True(InputRules.TryCombo("delete", new[] { "ctrl" }, out _, out _));
+    }
+
+    [Fact]
+    public void Combo_ListaGrandeDemais_Recusa() =>
+        Assert.False(InputRules.TryCombo("c", Enumerable.Repeat("ctrl", InputRules.MaxMods + 1).ToArray(), out _, out _));
+
+    [Fact]
+    public void TryKeyOrCombo_EntendeONomeCanonico()
+    {
+        Assert.True(InputRules.TryKeyOrCombo("alt+tab", out var lista));
+        Assert.Equal(4, lista.Count);
+        Assert.True(InputRules.TryKeyOrCombo("ctrl+alt+left", out var e));
+        Assert.Equal(new ushort[] { 0x11, 0x12, 0x25, 0x25, 0x12, 0x11 }, e.Select(k => k.Code));
+        Assert.False(InputRules.TryKeyOrCombo("ctrl+q", out _));
+        Assert.False(InputRules.TryKeyOrCombo("c", out _));
+        Assert.False(InputRules.TryKeyOrCombo(null, out _));
+        Assert.False(InputRules.TryKey("ctrl+alt+left", out _)); // a lista fixa em si não muda
+    }
+
+    [Fact]
+    public void Comando_TeclaComMods_Valido()
+    {
+        var (s, c) = Parse("{\"t\":\"tecla\",\"k\":\"c\",\"mods\":[\"ctrl\"]}");
+        Assert.Equal(ParseStatus.Ok, s);
+        Assert.Equal(new KeyCommand("ctrl+c"), c);
+        Assert.Equal(new KeyCommand("ctrl+shift+left"), Parse("{\"t\":\"tecla\",\"k\":\"Left\",\"mods\":[\"shift\",\"Ctrl\"]}").Command);
+    }
+
+    [Fact]
+    public void Comando_TeclaComListaVazia_ComoSemMods()
+    {
+        Assert.Equal(new KeyCommand("enter"), Parse("{\"t\":\"tecla\",\"k\":\"enter\",\"mods\":[]}").Command);
+        Assert.Equal(ParseStatus.InvalidFields, Parse("{\"t\":\"tecla\",\"k\":\"q\",\"mods\":[]}").Status);
+    }
+
+    [Theory]
+    [InlineData("{\"t\":\"tecla\",\"k\":\"q\",\"mods\":[\"ctrl\"]}")]            // tecla fora da lista
+    [InlineData("{\"t\":\"tecla\",\"k\":\"c\",\"mods\":[\"meta\"]}")]            // modificador desconhecido
+    [InlineData("{\"t\":\"tecla\",\"k\":\"c\",\"mods\":\"ctrl\"}")]              // não é lista
+    [InlineData("{\"t\":\"tecla\",\"k\":\"c\",\"mods\":[1]}")]                    // item não é texto
+    [InlineData("{\"t\":\"tecla\",\"k\":\"c\",\"mods\":null}")]
+    [InlineData("{\"t\":\"tecla\",\"k\":\"delete\",\"mods\":[\"ctrl\",\"alt\"]}")]
+    [InlineData("{\"t\":\"tecla\",\"mods\":[\"ctrl\"]}")]                          // sem tecla
+    public void Comando_TeclaComMods_Recusado(string json) => Assert.Equal(ParseStatus.InvalidFields, Parse(json).Status);
+
+    [Fact]
+    public void Comando_TeclaSemMods_ComoSempre()
+    {
+        Assert.Equal(new KeyCommand("alt+tab"), Parse("{\"t\":\"tecla\",\"k\":\"Alt+Tab\"}").Command);
+        Assert.Equal(ParseStatus.InvalidFields, Parse("{\"t\":\"tecla\",\"k\":\"c\"}").Status);
+    }
+
+    [Fact]
+    public void RecordingPc_TeclaCombinadaLogaOCombo()
+    {
+        var linhas = new List<string>();
+        IPcActions pc = new RecordingPc(linhas.Add);
+        pc.PressKey("ctrl+shift+left");
+        Assert.Equal(new[] { "teste-pc: entrada tecla ctrl+shift+left 6 eventos" }, linhas);
+    }
 }

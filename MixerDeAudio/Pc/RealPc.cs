@@ -62,7 +62,7 @@ internal sealed class RealPc : IPcActions
 
     public void PressKey(string name)
     {
-        if (InputRules.TryKey(name, out var events)) InputSender.Send(events);
+        if (InputRules.TryKeyOrCombo(name, out var events)) InputSender.Send(events);
     }
 
     public void KeepAwake(bool on) => MixerDeAudio.Pc.KeepAwake.Set(on);

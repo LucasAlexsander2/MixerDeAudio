@@ -20,7 +20,10 @@
 //   celular.exe tela <porta> <chave|-> <passos> -> (Fase 10) abre UM canal WebSocket /tela/ws e roda os passos em sequencia, no mesmo canal.
 //                                                       <passos> = "<qualidade>:<mon>:<w>:<segundos>:<ok|semok>" separados por ';'. Cada passo manda a configuracao
 //                                                       {"mon":..,"w":..,"q":".."}, le quadros binarios por <segundos> e, com "ok", responde {"ok":1} a cada quadro.
-//                                                       Imprime por passo "PASSO<TAB>i<TAB>q<TAB>quadros<TAB>bytes-medios<TAB>ultimoLxA<TAB>segundos<TAB>jpeg|nao-jpeg" e, no fim, "FIM".
+//                                                       Imprime por passo "PASSO<TAB>i<TAB>q<TAB>quadros<TAB>bytes-medios<TAB>ultimoLxA<TAB>segundos<TAB>jpeg|nao-jpeg<TAB>textos<TAB>pares<TAB>fora<TAB>sem-texto" e, no fim, "FIM".
+//                                                       (Fase 15c) Depois do ok|semok, dois campos opcionais: ":<cur>" (tamanho do ponteiro; "-" = nao manda) e ":p" (manda "p":1).
+//                                                       Os quatro ultimos numeros contam os textos {"p":[x,y]} recebidos, os quadros que vieram logo depois de um texto,
+//                                                       os textos com x ou y fora de 0..1 e os quadros sem texto antes (sem "p", textos e pares sao 0).
 //                                                       Se o servidor fechar o canal: "FECHOU<TAB>codigo" (codigo de saida 5). Recusa no upgrade: "RECUSADO<TAB>msg" (codigo 4).
 //                                                       "-" no lugar da chave = sem cookie. NUNCA grava a imagem em disco (so o cabecalho e as dimensoes do JPEG).
 //   celular.exe segundo <porta> <chave>              -> (Fase 9) conecta como OUTRO celular (outra chave), nao envia nada, imprime
@@ -567,11 +570,13 @@ static async Task<int> Segundo(int porta, string chave)
 // Fase 10: canal /tela/ws (um so, com varios passos). A imagem so e lida para conferir cabecalho, tamanho e dimensoes: nunca vai para o disco.
 static async Task<int> Tela(int porta, string chave, string passosTxt)
 {
-    var passos = new List<(string Q, int Mon, int W, int Seg, bool Ok)>();
+    var passos = new List<(string Q, int Mon, int W, int Seg, bool Ok, string Cur, bool Ponteiro)>();
     foreach (var t in passosTxt.Split(';', StringSplitOptions.RemoveEmptyEntries))
     {
         var p = t.Split(':');
-        passos.Add((p[0], int.Parse(p[1]), int.Parse(p[2]), int.Parse(p[3]), p.Length < 5 || p[4] != "semok"));
+        // Fase 15c: campos opcionais depois do ok|semok: <cur> (tamanho do ponteiro, "-" = nao manda) e "p" (manda "p":1)
+        passos.Add((p[0], int.Parse(p[1]), int.Parse(p[2]), int.Parse(p[3]), p.Length < 5 || p[4] != "semok",
+            p.Length > 5 && p[5] != "-" && p[5] != "" ? p[5] : "", p.Length > 6 && p[6] == "p"));
     }
     using var ws = new ClientWebSocket();
     if (chave != "-")
@@ -592,7 +597,7 @@ static async Task<int> Tela(int porta, string chave, string passosTxt)
     }
 
     // Um unico leitor para o canal inteiro (cancelar um ReceiveAsync aborta o WebSocket): cada mensagem vira um item da fila.
-    var fila = Channel.CreateUnbounded<(bool Fechou, int Bytes, int W, int H, bool Jpeg)>();
+    var fila = Channel.CreateUnbounded<(bool Fechou, int Bytes, int W, int H, bool Jpeg, string? Texto)>();
     var leitor = Task.Run(async () =>
     {
         var buf = new byte[4 * 1024 * 1024];
@@ -607,20 +612,25 @@ static async Task<int> Tela(int porta, string chave, string passosTxt)
                     r = await ws.ReceiveAsync(new ArraySegment<byte>(buf, len, buf.Length - len), CancellationToken.None);
                     if (r.MessageType == WebSocketMessageType.Close)
                     {
-                        fila.Writer.TryWrite((true, (int)(ws.CloseStatus ?? 0), 0, 0, false));
+                        fila.Writer.TryWrite((true, (int)(ws.CloseStatus ?? 0), 0, 0, false, null));
                         return;
                     }
                     len += r.Count;
                 } while (!r.EndOfMessage);
+                if (r.MessageType == WebSocketMessageType.Text)
+                {
+                    fila.Writer.TryWrite((false, 0, 0, 0, false, Encoding.UTF8.GetString(buf, 0, len)));
+                    continue;
+                }
                 if (r.MessageType != WebSocketMessageType.Binary) continue;
                 var jpeg = len > 3 && buf[0] == 0xFF && buf[1] == 0xD8 && buf[2] == 0xFF;
                 var (jw, jh) = jpeg ? DimensoesJpeg(buf.AsSpan(0, len).ToArray()) : (0, 0);
-                fila.Writer.TryWrite((false, len, jw, jh, jpeg));
+                fila.Writer.TryWrite((false, len, jw, jh, jpeg, null));
             }
         }
         catch (Exception ex) when (ex is WebSocketException or OperationCanceledException or ObjectDisposedException)
         {
-            fila.Writer.TryWrite((true, 1006, 0, 0, false));
+            fila.Writer.TryWrite((true, 1006, 0, 0, false, null));
         }
     });
 
@@ -628,12 +638,16 @@ static async Task<int> Tela(int porta, string chave, string passosTxt)
     for (var i = 0; i < passos.Count; i++)
     {
         var ps = passos[i];
-        var cfg = Encoding.UTF8.GetBytes($"{{\"mon\":{ps.Mon},\"w\":{ps.W},\"q\":\"{ps.Q}\"}}");
+        var extra = (ps.Cur != "" ? $",\"cur\":{ps.Cur}" : "") + (ps.Ponteiro ? ",\"p\":1" : "");
+        var cfg = Encoding.UTF8.GetBytes($"{{\"mon\":{ps.Mon},\"w\":{ps.W},\"q\":\"{ps.Q}\"{extra}}}");
         await ws.SendAsync(cfg, WebSocketMessageType.Text, true, CancellationToken.None);
         var relogio = Stopwatch.StartNew();
         long quadros = 0, bytes = 0;
         int ultW = 0, ultH = 0;
         var todosJpeg = true;
+        // Fase 15c: textos {"p":[x,y]} recebidos, quadros que vieram logo depois de um texto, textos com x ou y fora de 0..1 e quadros sem texto antes
+        int textos = 0, pares = 0, foraDeFaixa = 0, semTexto = 0;
+        var textoPendente = false;
         while (true)
         {
             var resta = TimeSpan.FromSeconds(ps.Seg) - relogio.Elapsed;
@@ -648,12 +662,27 @@ static async Task<int> Tela(int porta, string chave, string passosTxt)
                 Console.WriteLine($"FECHOU\t{item.Bytes}");
                 return 5;
             }
+            if (item.Texto is not null)
+            {
+                textos++;
+                try
+                {
+                    using var d = JsonDocument.Parse(item.Texto);
+                    var a = d.RootElement.GetProperty("p");
+                    if (a.GetArrayLength() != 2 || a[0].GetDouble() is < 0 or > 1 || a[1].GetDouble() is < 0 or > 1) foraDeFaixa++;
+                }
+                catch (Exception ex) when (ex is JsonException or KeyNotFoundException or InvalidOperationException) { foraDeFaixa++; }
+                textoPendente = true;
+                continue;
+            }
+            if (textoPendente) pares++; else semTexto++;
+            textoPendente = false;
             quadros++; bytes += item.Bytes; ultW = item.W; ultH = item.H;
             if (!item.Jpeg) todosJpeg = false;
             if (ps.Ok && ws.State == WebSocketState.Open) await ws.SendAsync(ok, WebSocketMessageType.Text, true, CancellationToken.None);
         }
         var medio = quadros > 0 ? bytes / quadros : 0;
-        Console.WriteLine($"PASSO\t{i}\t{ps.Q}\t{quadros}\t{medio}\t{ultW}x{ultH}\t{relogio.Elapsed.TotalSeconds.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)}\t{(todosJpeg ? "jpeg" : "nao-jpeg")}");
+        Console.WriteLine($"PASSO\t{i}\t{ps.Q}\t{quadros}\t{medio}\t{ultW}x{ultH}\t{relogio.Elapsed.TotalSeconds.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)}\t{(todosJpeg ? "jpeg" : "nao-jpeg")}\t{textos}\t{pares}\t{foraDeFaixa}\t{semTexto}");
     }
     try
     {

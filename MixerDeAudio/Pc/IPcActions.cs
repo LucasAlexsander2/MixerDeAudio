@@ -134,7 +134,7 @@ public sealed class RecordingPc : IPcActions
 
     public void PressKey(string name)
     {
-        InputRules.TryKey(name, out var events);
+        InputRules.TryKeyOrCombo(name, out var events);
         _sink($"teste-pc: entrada tecla {name.ToLowerInvariant()} {events.Count} eventos");
     }
 

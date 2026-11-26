@@ -31,6 +31,9 @@ internal sealed class ScreenCapture : IDisposable
     private bool _disposed;
     private readonly Stopwatch _clock = new();
 
+    /// <summary>Posição do ponteiro (0 a 1 no quadro) lida na última captura; nula se o Windows não informou (Fase 15c, D16).</summary>
+    public (double X, double Y)? LastPointer { get; private set; }
+
     /// <summary>Quadros enviados (codificados).</summary>
     public int Sent { get; private set; }
     /// <summary>Quadros iguais ao anterior, pulados.</summary>
@@ -83,7 +86,7 @@ internal sealed class ScreenCapture : IDisposable
     /// qualidade). <c>Jpeg</c> nulo com <c>Equal</c> verdadeiro: o quadro é igual ao anterior (nada codificado); <c>Failed</c>:
     /// a tela não existe ou a captura falhou (tela bloqueada, por exemplo). <c>Width</c> e <c>Height</c> são as dimensões do quadro.
     /// </summary>
-    public async Task<(byte[]? Jpeg, bool Equal, bool Failed, int Width, int Height)> CaptureAsync(int monitor, int width, ScreenQuality quality)
+    public async Task<(byte[]? Jpeg, bool Equal, bool Failed, int Width, int Height)> CaptureAsync(int monitor, int width, ScreenQuality quality, double cursorScale = 1.0)
     {
         if (_disposed) return (null, false, true, 0, 0);
         _clock.Restart();
@@ -94,7 +97,7 @@ internal sealed class ScreenCapture : IDisposable
         if (w <= 0 || h <= 0) return (null, false, true, 0, 0);
         var rebuilt = ScreenStreamRules.NeedsRebuild(_mon, _w, _h, monitor, w, h);
         if (rebuilt && !Rebuild(monitor, w, h)) return (null, false, true, 0, 0);
-        if (!Grab(s, w, h)) return (null, false, true, w, h);
+        if (!Grab(s, w, h, cursorScale)) return (null, false, true, w, h);
 
         var len = w * h * 4;
         var identical = !rebuilt && _hasPrev && SameAsPrevious(len);
@@ -170,7 +173,7 @@ internal sealed class ScreenCapture : IDisposable
         _old = _dib = _memDc = _bits = IntPtr.Zero;
     }
 
-    private bool Grab(ScreenInfo s, int w, int h)
+    private bool Grab(ScreenInfo s, int w, int h, double cursorScale)
     {
         var screenDc = NativeMethods.GetDC(IntPtr.Zero);
         if (screenDc == IntPtr.Zero) return false;
@@ -179,7 +182,7 @@ internal sealed class ScreenCapture : IDisposable
             if (!NativeMethods.StretchBlt(_memDc, 0, 0, w, h, screenDc, s.Left, s.Top, s.Width, s.Height,
                     NativeMethods.SRCCOPY | NativeMethods.CAPTUREBLT))
                 return false;
-            DrawCursor(_memDc, s, w);
+            LastPointer = DrawCursor(_memDc, s, w, cursorScale);
             NativeMethods.GdiFlush();
             return true;
         }
@@ -189,18 +192,24 @@ internal sealed class ScreenCapture : IDisposable
         }
     }
 
-    /// <summary>Desenha o cursor (se estiver visível) na posição certa do quadro reduzido.</summary>
-    private static unsafe void DrawCursor(IntPtr memDc, ScreenInfo s, int frameWidth)
+    /// <summary>
+    /// Desenha o cursor (se estiver visível) na posição certa do quadro reduzido, <paramref name="cursorScale"/> vezes maior que o do
+    /// sistema (só na imagem; o ponteiro do Windows não muda), e devolve a posição dele no quadro (0 a 1; nulo se o Windows não disse).
+    /// Com <paramref name="cursorScale"/> 1 o desenho é o de sempre.
+    /// </summary>
+    private static unsafe (double X, double Y)? DrawCursor(IntPtr memDc, ScreenInfo s, int frameWidth, double cursorScale)
     {
         var ci = new NativeMethods.CURSORINFO { cbSize = (uint)sizeof(NativeMethods.CURSORINFO) };
-        if (!NativeMethods.GetCursorInfo(ref ci) || (ci.flags & NativeMethods.CURSOR_SHOWING) == 0 || ci.hCursor == IntPtr.Zero) return;
-        if (!NativeMethods.GetIconInfo(ci.hCursor, out var ii)) return;
+        if (!NativeMethods.GetCursorInfo(ref ci)) return null;
+        var pointer = ScreenStreamRules.PointerFraction(ci.ptScreenPos.X, ci.ptScreenPos.Y, s.Left, s.Top, s.Width, s.Height);
+        if ((ci.flags & NativeMethods.CURSOR_SHOWING) == 0 || ci.hCursor == IntPtr.Zero) return pointer;
+        if (!NativeMethods.GetIconInfo(ci.hCursor, out var ii)) return pointer;
         try
         {
             var scale = (double)frameWidth / s.Width;
-            var size = Math.Max(12, (int)Math.Round(NativeMethods.GetSystemMetrics(NativeMethods.SM_CXCURSOR) * scale));
-            var x = (int)Math.Round((ci.ptScreenPos.X - s.Left - (int)ii.xHotspot) * scale);
-            var y = (int)Math.Round((ci.ptScreenPos.Y - s.Top - (int)ii.yHotspot) * scale);
+            var size = Math.Max(12, (int)Math.Round(NativeMethods.GetSystemMetrics(NativeMethods.SM_CXCURSOR) * scale * cursorScale));
+            var x = (int)Math.Round((ci.ptScreenPos.X - s.Left - (int)ii.xHotspot * cursorScale) * scale);
+            var y = (int)Math.Round((ci.ptScreenPos.Y - s.Top - (int)ii.yHotspot * cursorScale) * scale);
             NativeMethods.DrawIconEx(memDc, x, y, ci.hCursor, size, size, 0, IntPtr.Zero, NativeMethods.DI_NORMAL);
         }
         finally
@@ -208,6 +217,7 @@ internal sealed class ScreenCapture : IDisposable
             if (ii.hbmMask != IntPtr.Zero) NativeMethods.DeleteObject(ii.hbmMask);
             if (ii.hbmColor != IntPtr.Zero) NativeMethods.DeleteObject(ii.hbmColor);
         }
+        return pointer;
     }
 
     /// <summary>
