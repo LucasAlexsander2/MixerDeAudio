@@ -123,6 +123,79 @@ public class PcInfoTests
         Assert.Equal(0, lo.RootElement.GetProperty("cpu").GetInt32());
     }
 
+    // ---- GPU (Fase 15a, D13) ----
+
+    private static KeyValuePair<string, double> Motor(string luid, int eng, string tipo, double valor, int pid = 100) =>
+        new($"pid_{pid}_luid_0x00000000_{luid}_phys_0_eng_{eng}_engtype_{tipo}", valor);
+
+    [Fact]
+    public void Gpu_SomaOsMotores3DDoMesmoAdaptador()
+    {
+        var lista = new[] { Motor("0x0000AAAA", 0, "3D", 10.4), Motor("0x0000AAAA", 0, "3D", 20.2, pid: 200), Motor("0x0000AAAA", 1, "3D", 5.0) };
+        Assert.Equal(36, PcInfoRules.GpuPercent(lista)); // 35,6 arredonda para 36
+    }
+
+    [Fact]
+    public void Gpu_IgnoraOutrosTiposDeMotor()
+    {
+        var lista = new[] { Motor("0x0000AAAA", 0, "3D", 12), Motor("0x0000AAAA", 1, "VideoDecode", 80), Motor("0x0000AAAA", 2, "Copy", 90), Motor("0x0000AAAA", 3, "Compute_0", 70) };
+        Assert.Equal(12, PcInfoRules.GpuPercent(lista));
+    }
+
+    [Fact]
+    public void Gpu_ValeOAdaptadorMaisUsado()
+    {
+        var lista = new[] { Motor("0x0000AAAA", 0, "3D", 8), Motor("0x0000BBBB", 0, "3D", 30), Motor("0x0000BBBB", 1, "3D", 25), Motor("0x0000CCCC", 0, "3D", 40) };
+        Assert.Equal(55, PcInfoRules.GpuPercent(lista)); // BBBB soma 55; não soma entre adaptadores
+    }
+
+    [Fact]
+    public void Gpu_CortaEmCemEIgnoraNegativosENaoNumeros()
+    {
+        var lista = new[] { Motor("0x0000AAAA", 0, "3D", 70), Motor("0x0000AAAA", 1, "3D", 60), Motor("0x0000AAAA", 2, "3D", -5), Motor("0x0000AAAA", 3, "3D", double.NaN) };
+        Assert.Equal(100, PcInfoRules.GpuPercent(lista));
+    }
+
+    [Fact]
+    public void Gpu_SemMotores3D_SemLeitura()
+    {
+        Assert.Null(PcInfoRules.GpuPercent(Array.Empty<KeyValuePair<string, double>>()));
+        Assert.Null(PcInfoRules.GpuPercent(new[] { Motor("0x0000AAAA", 0, "Copy", 50) }));
+        Assert.Null(PcInfoRules.GpuPercent(new[] { Motor("0x0000AAAA", 0, "3D", double.PositiveInfinity) }));
+    }
+
+    [Fact]
+    public void Gpu_3DParado_ZeroEMaiusculasNoTipo()
+    {
+        Assert.Equal(0, PcInfoRules.GpuPercent(new[] { Motor("0x0000AAAA", 0, "3D", 0) }));
+        Assert.Equal(7, PcInfoRules.GpuPercent(new[] { new KeyValuePair<string, double>("pid_1_luid_0x0_0x1_phys_0_eng_0_engtype_3d", 7) }));
+    }
+
+    [Fact]
+    public void BuildInfo_ComGpu_VaiOCampo()
+    {
+        var snap = new PcInfoSnapshot(5, 1, 2, 3, null, false, 4, 5, 42);
+        using var doc = JsonDocument.Parse(RemoteProtocol.BuildInfo(snap));
+        Assert.Equal(42, doc.RootElement.GetProperty("gpu").GetInt32());
+    }
+
+    [Fact]
+    public void BuildInfo_SemGpu_CampoAusente()
+    {
+        using var doc = JsonDocument.Parse(RemoteProtocol.BuildInfo(new PcInfoSnapshot(5, 1, 2, 3, null, false, 4, 5)));
+        Assert.False(doc.RootElement.TryGetProperty("gpu", out _));
+        Assert.True(doc.RootElement.TryGetProperty("cpu", out _)); // o resto do info continua igual
+    }
+
+    [Fact]
+    public void BuildInfo_GpuForaDaFaixa_Corta()
+    {
+        using var hi = JsonDocument.Parse(RemoteProtocol.BuildInfo(new PcInfoSnapshot(1, 0, 0, 0, null, false, 0, 0, 180)));
+        Assert.Equal(100, hi.RootElement.GetProperty("gpu").GetInt32());
+        using var lo = JsonDocument.Parse(RemoteProtocol.BuildInfo(new PcInfoSnapshot(1, 0, 0, 0, null, false, 0, 0, -3)));
+        Assert.Equal(0, lo.RootElement.GetProperty("gpu").GetInt32());
+    }
+
     // ---- Assinatura ----
 
     [Theory]

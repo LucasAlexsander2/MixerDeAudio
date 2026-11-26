@@ -1,1 +1,13 @@
-/* Estilos da tela Som (parte 15a); vazio na Fase 15.0. */
+/* Estilos da tela Som (Fase 15a). Só tokens. */
+.som-geral{display:flex;align-items:center;gap:10px;margin-top:10px;padding-top:8px;padding-bottom:8px}
+.som-geral .barra{flex:1;min-width:0}
+.som-geral.indisponivel{opacity:.45}
+.som-mudo-geral{width:44px;height:44px;flex:none;display:grid;place-items:center;border-radius:var(--canto-botao);background:var(--surface-2);border:1px solid var(--line)}
+.som-mudo-geral:active{background:var(--line)}
+.som-mudo-geral.mudo{color:var(--danger);border-color:var(--danger)}
+.som-mudo-geral:disabled{cursor:default}
+.mao-esquerda .som-geral{flex-direction:row-reverse}
+.som-apps{display:flex;flex-direction:column;gap:var(--espaco)}
+.cartao-app .avatar .som-icone{width:30px;height:30px;object-fit:contain;display:block}
+.cartao-app .avatar:disabled{cursor:default}
+.cartao-app .botao-midia:disabled{opacity:.45;cursor:default}

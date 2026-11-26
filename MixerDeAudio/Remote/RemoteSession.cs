@@ -309,6 +309,7 @@ internal sealed class RemoteSession
         _infoTimer.Stop();
         _infoTimer.Tick -= OnInfoTick;
         _infoTimer = null;
+        _info?.Dispose();
         _info = null;
     }
 
