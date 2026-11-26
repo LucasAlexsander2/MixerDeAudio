@@ -1,0 +1,10 @@
+/* Estilos do Início e da tela Opções (Fase 15a). Só tokens. */
+.inicio-estado{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;width:100%;padding:12px;margin:0 0 2px;text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:var(--canto-cartao)}
+.inicio-estado:active{background:var(--surface-2)}
+.inicio-estado[hidden]{display:none}
+.inicio-metrica{min-width:0}
+.inicio-metrica-linha{display:flex;justify-content:space-between;align-items:baseline;gap:4px;font-size:12px;font-weight:600;color:var(--muted)}
+.inicio-metrica-linha b{font-size:11px;color:var(--fg);white-space:nowrap}
+.inicio-estado .medidor{margin-top:6px}
+.opcoes-favoritos{margin-top:8px;padding-top:4px;padding-bottom:4px}
+.opcoes-restaurar{margin-top:12px;align-self:stretch}

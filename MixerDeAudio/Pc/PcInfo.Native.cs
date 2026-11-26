@@ -4,8 +4,8 @@ using System.Runtime.InteropServices;
 
 namespace MixerDeAudio.Pc;
 
-/// <summary>Lê o estado do PC (Fase 9d, D27): CPU, memória, tempo ligado, bateria e disco. Só existe com a aba PC aberta.</summary>
-internal sealed partial class PcInfoReader
+/// <summary>Lê o estado do PC (Fase 9d, D27): CPU, memória, tempo ligado, bateria e disco (e a GPU, D13 da Fase 15). Só existe com a aba PC aberta.</summary>
+internal sealed partial class PcInfoReader : IDisposable
 {
     [StructLayout(LayoutKind.Sequential)]
     private struct FILETIME
@@ -52,6 +52,7 @@ internal sealed partial class PcInfoReader
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool GetSystemPowerStatus(out SYSTEM_POWER_STATUS status);
 
+    private readonly GpuReader _gpu = new();
     private CpuTimes _previous;
     private bool _hasPrevious;
 
@@ -83,8 +84,10 @@ internal sealed partial class PcInfoReader
         var root = Path.GetPathRoot(Environment.GetFolderPath(Environment.SpecialFolder.Windows));
         DiskSpace.TryGet(root, out var free, out var size);
 
-        return new PcInfoSnapshot(cpu, used, total, Environment.TickCount64 / 1000, battery, charging, free, size);
+        return new PcInfoSnapshot(cpu, used, total, Environment.TickCount64 / 1000, battery, charging, free, size, _gpu.Read());
     }
+
+    public void Dispose() => _gpu.Dispose();
 }
 
 /// <summary>Espaço do disco pelo Windows (<c>GetDiskFreeSpaceExW</c>); sem <c>DriveInfo</c>, que o corte do publicado deixa de fora.</summary>

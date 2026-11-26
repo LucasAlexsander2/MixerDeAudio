@@ -336,7 +336,7 @@ public static class RemoteProtocol
 
     /// <summary>
     /// O estado do PC (D27): <c>{"t":"info","cpu":N,"mem":{"usada","total"},"ligado":seg,"bateria":{"pct","carregando"}|null,
-    /// "disco":{"livre","total"}}</c>.
+    /// "disco":{"livre","total"},"gpu":N}</c>; <c>gpu</c> (0 a 100) só vai quando há leitura (D13 da Fase 15).
     /// </summary>
     public static string BuildInfo(PcInfoSnapshot info)
     {
@@ -366,6 +366,7 @@ public static class RemoteProtocol
             w.WriteNumber("livre", Math.Max(0, info.DiskFree));
             w.WriteNumber("total", Math.Max(0, info.DiskTotal));
             w.WriteEndObject();
+            if (info.Gpu is { } gpu) w.WriteNumber("gpu", Math.Clamp(gpu, 0, 100));
             w.WriteEndObject();
         }
         return Encoding.UTF8.GetString(stream.GetBuffer(), 0, (int)stream.Length);
