@@ -1,1 +1,15 @@
-/* Estilos da tela Enviar (parte 15d); vazio na Fase 15.0. */
+/* Tela Enviar (Fase 15d). Só tokens. */
+.enviar-cartao{display:flex;flex-direction:column;gap:10px;margin-bottom:var(--espaco)}
+.enviar-clip{background:var(--surface-2);border:1px solid var(--line);border-radius:var(--canto-botao);padding:10px;max-height:140px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;color:var(--fg);user-select:text;-webkit-user-select:text}
+.enviar-clip.texto-sec{color:var(--muted)}
+.enviar-nota{margin-top:-4px}
+.enviar-campo{width:100%;min-height:88px;resize:vertical;background:var(--surface-2);color:var(--fg);border:1px solid var(--line);border-radius:var(--canto-botao);padding:10px;font:inherit;font-size:16px;user-select:text;-webkit-user-select:text}
+.enviar-campo::placeholder{color:var(--muted)}
+.enviar-lista{display:flex;flex-direction:column;gap:var(--espaco);margin-top:var(--espaco)}
+.enviar-vazio{margin:6px 0 0}
+.enviar-cartao .medidor{margin-top:0}
+.enviar-topo{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0}
+.enviar-nome{flex:1;min-width:0;font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.enviar-estado{flex:1 0 100%;order:3;font-size:12px}
+.enviar-estado.ok{color:var(--ok)}
+.enviar-estado.erro{color:var(--danger)}
