@@ -75,7 +75,15 @@ export async function parear(codigo) {
       pareando = false;
       conectar();
     } else {
-      erro = r.status === 401 ? 'Código incorreto.' : r.status === 429 ? 'Muitas tentativas. Aguarde 1 minuto.' : 'Não foi possível conectar (' + r.status + ').';
+      // Fase 16 (D2 a D4): o PC explica o motivo no JSON ({"motivo":"fechado"|"recusado"|"bloqueado"|"ocupado"}); sem JSON, vale o status
+      let motivo = '';
+      try { motivo = (await r.json()).motivo || ''; } catch { /* sem corpo JSON */ }
+      erro = motivo === 'fechado' ? 'Abra as Configurações no PC para parear.'
+        : motivo === 'recusado' ? 'O PC recusou.'
+        : r.status === 401 ? 'Código incorreto.'
+        : r.status === 429 ? 'Muitas tentativas. Aguarde alguns minutos ou abra as Configurações no PC.'
+        : r.status === 409 ? 'Outro pareamento está esperando confirmação no PC.'
+        : 'Não foi possível conectar (' + r.status + ').';
     }
   } catch {
     erro = 'Sem conexão com o PC.';

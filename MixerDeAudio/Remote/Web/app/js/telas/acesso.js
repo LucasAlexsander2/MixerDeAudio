@@ -27,14 +27,19 @@ export function criarTelaAcesso({ container, aoParear, aoConectarDeNovo }) {
   const erro = document.createElement('p');
   erro.className = 'erro';
   erro.setAttribute('role', 'alert');
+  // Fase 16 (D4): enquanto o PC pergunta se permite este celular
+  const espera = document.createElement('p');
+  espera.setAttribute('role', 'status');
+  espera.hidden = true;
   const nota = document.createElement('p');
   const denovo = criarBotao({ texto: 'Conectar', variante: 'principal', aoClicar: () => aoConectarDeNovo() });
-  el.append(titulo, texto, codigo, conectar.el, erro, nota, denovo.el);
+  el.append(titulo, texto, codigo, conectar.el, erro, espera, nota, denovo.el);
 
   function mostrar(modo) {
     el.hidden = false;
     codigo.hidden = conectar.el.hidden = erro.hidden = modo !== 'pareamento';
     nota.hidden = modo !== 'ocupado';
+    if (modo !== 'pareamento') espera.hidden = true;
     denovo.el.hidden = modo !== 'desconectado';
     texto.hidden = modo === 'conectando';
   }
@@ -43,7 +48,11 @@ export function criarTelaAcesso({ container, aoParear, aoConectarDeNovo }) {
     if (codigo.value.length !== 6) return;
     conectar.desativar(true);
     erro.textContent = '';
+    // resposta rápida (código errado) não pisca o aviso; a confirmação no PC demora até 60 s
+    const aviso = setTimeout(() => { espera.textContent = 'Confirme no PC'; espera.hidden = false; }, 800);
     const e = await aoParear(codigo.value);
+    clearTimeout(aviso);
+    espera.hidden = true;
     if (e) erro.textContent = e; else codigo.value = '';
     conectar.desativar(codigo.value.length !== 6);
   }

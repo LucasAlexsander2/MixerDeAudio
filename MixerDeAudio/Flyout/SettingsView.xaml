@@ -138,10 +138,13 @@
                                Text="Se o Windows perguntar, permita o acesso em redes privadas."
                                TextWrapping="Wrap" Opacity="0.7" FontSize="12" />
                     <StackPanel Spacing="8" Visibility="{x:Bind Model.RemoteVisibility, Mode=OneWay}">
-                        <TextBlock Text="No celular, no mesmo Wi-Fi, leia o QR code ou abra o endereço e digite o código."
+                        <TextBlock Text="No celular, no mesmo Wi-Fi, leia o QR code ou abra o endereço e digite o código. O PC vai perguntar se permite o celular."
                                    TextWrapping="Wrap" Opacity="0.7" FontSize="12" />
                         <TextBlock AutomationProperties.AutomationId="RemoteAddress"
                                    Text="{x:Bind Model.RemoteAddress, Mode=OneWay}" IsTextSelectionEnabled="True" TextWrapping="Wrap" />
+                        <TextBlock AutomationProperties.AutomationId="RemoteWarning"
+                                   Text="{x:Bind Model.RemoteWarning, Mode=OneWay}" Visibility="{x:Bind Model.RemoteWarningVisibility, Mode=OneWay}"
+                                   TextWrapping="Wrap" FontSize="12" Foreground="{ThemeResource SystemFillColorCriticalBrush}" />
                         <TextBlock AutomationProperties.AutomationId="RemoteAddressHint"
                                    Text="Para o endereço não mudar, reserve o IP deste PC no roteador (DHCP). No iPhone, o atalho da Tela de Início precisa ser pareado uma vez."
                                    TextWrapping="Wrap" Opacity="0.7" FontSize="12" />

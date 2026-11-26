@@ -57,6 +57,7 @@
     <Compile Include="..\MixerDeAudio\Pc\Shortcuts.cs" Link="Pc\Shortcuts.cs" />
     <Compile Include="..\MixerDeAudio\Pc\SleepTimer.cs" Link="Pc\SleepTimer.cs" />
     <Compile Include="..\MixerDeAudio\Pc\FileNameRules.cs" Link="Pc\FileNameRules.cs" />
+    <Compile Include="..\MixerDeAudio\Pc\NetworkRules.cs" Link="Pc\NetworkRules.cs" />
     <Compile Include="..\MixerDeAudio\Pc\PcInfo.cs" Link="Pc\PcInfo.cs" />
     <Compile Include="..\MixerDeAudio\Pc\ClipboardBridge.cs" Link="Pc\ClipboardBridge.cs" />
   </ItemGroup>

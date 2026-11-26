@@ -138,43 +138,220 @@ public class RemoteRulesTests
     [InlineData(null, null)]
     public void Cookie(string? cabecalho, string? esperado) => Assert.Equal(esperado, RemoteRules.GetCookie(cabecalho));
 
+    // ---- Fase 16: Host (D1), limitador (D2), janela de pareamento (D3), CSP (D6), vagas por IP (D7) ----
+
+    private static readonly IPAddress[] Permitidos = [IPAddress.Parse("192.168.0.10"), IPAddress.Parse("10.0.0.5")];
+
+    [Theory]
+    [InlineData("192.168.0.10:8750", true)]
+    [InlineData("10.0.0.5:8750", true)]
+    [InlineData("127.0.0.1:8750", true)]
+    [InlineData("localhost:8750", true)]
+    [InlineData("LocalHost:8750", true)]
+    [InlineData("[::1]:8750", true)]
+    [InlineData("192.168.0.10:8751", false)]      // porta errada
+    [InlineData("192.168.0.10", false)]           // sem porta
+    [InlineData("localhost", false)]
+    [InlineData("mal.exemplo:8750", false)]       // nome de domínio
+    [InlineData("localhost.mal.exemplo:8750", false)]
+    [InlineData("192.168.0.11:8750", false)]      // IP que não é do PC
+    [InlineData("8.8.8.8:8750", false)]
+    [InlineData("[fe80::1]:8750", false)]         // IPv6 que não é do PC
+    [InlineData("[::1]", false)]
+    [InlineData("::1:8750", false)]               // IPv6 sem colchetes
+    [InlineData("127.1:8750", false)]             // forma abreviada
+    [InlineData("192.168.000.10:8750", false)]    // zeros à esquerda
+    [InlineData("192.168.0.10:8750:1", false)]
+    [InlineData("192.168.0.10:abc", false)]
+    [InlineData("", false)]
+    [InlineData("   ", false)]
+    [InlineData(null, false)]
+    public void Host_SoIpDoPcOuLocal_ComAPortaAtual(string? host, bool esperado) =>
+        Assert.Equal(esperado, RemoteRules.HostAllowed(host, Permitidos, 8750));
+
     [Fact]
-    public void Limitador_CincoErrosBloqueiam_LiberamDepoisDe60s_UmAcertoZera()
+    public void Host_SemInterfacePermitida_SoLocalPassa()
     {
-        var agora = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
-        var limitador = new PairingLimiter(() => agora);
-        for (var i = 0; i < 4; i++)
-        {
-            Assert.False(limitador.RegisterFailure());
-            Assert.False(limitador.IsBlocked);
-        }
-        Assert.True(limitador.RegisterFailure()); // o 5o erro inicia o bloqueio
-        Assert.True(limitador.IsBlocked);
-        agora += TimeSpan.FromSeconds(59);
-        Assert.True(limitador.IsBlocked);
-        agora += TimeSpan.FromSeconds(2);
-        Assert.False(limitador.IsBlocked);
-        // depois do bloqueio a contagem recomeça do zero
-        for (var i = 0; i < 4; i++) limitador.RegisterFailure();
-        Assert.False(limitador.IsBlocked);
-        limitador.RegisterSuccess();
-        for (var i = 0; i < 4; i++) limitador.RegisterFailure();
-        Assert.False(limitador.IsBlocked); // o acerto zerou: ainda faltaria 1 erro
-        Assert.True(limitador.RegisterFailure());
-        Assert.True(limitador.IsBlocked);
+        Assert.False(RemoteRules.HostAllowed("192.168.0.10:8750", Array.Empty<IPAddress>(), 8750));
+        Assert.True(RemoteRules.HostAllowed("127.0.0.1:8750", Array.Empty<IPAddress>(), 8750));
     }
 
     [Fact]
-    public void Limitador_ErrosDuranteOBloqueioNaoPrologamNada()
+    public void Csp_TemFrameAncestorsNoneEOWebSocketDoHost()
+    {
+        var csp = RemoteRules.BuildCsp("192.168.0.10:8750");
+        Assert.StartsWith("frame-ancestors 'none'; default-src 'self'; ", csp);
+        Assert.Contains("script-src 'self' 'unsafe-inline'", csp);
+        Assert.Contains("style-src 'self' 'unsafe-inline'", csp);
+        Assert.Contains("img-src 'self' blob: data:", csp);
+        Assert.Contains("font-src 'self'", csp);
+        Assert.EndsWith("connect-src 'self' ws://192.168.0.10:8750", csp);
+        Assert.EndsWith("connect-src 'self' ws://[::1]:8750", RemoteRules.BuildCsp("[::1]:8750"));
+    }
+
+    [Theory]
+    [InlineData("a b")]
+    [InlineData("x;y:8750")]
+    [InlineData("h\r\nX: 1")]
+    [InlineData(null)]
+    public void Csp_HostComCaractereEstranho_FicaSoComSelf(string? host) =>
+        Assert.EndsWith("connect-src 'self'", RemoteRules.BuildCsp(host));
+
+    [Fact]
+    public void Limitador_CincoTentativasBloqueiamOIp_ComBloqueioCrescente_EVoltaAoComecoDepoisDe1h()
     {
         var agora = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
-        var limitador = new PairingLimiter(() => agora);
-        for (var i = 0; i < 5; i++) limitador.RegisterFailure();
-        agora += TimeSpan.FromSeconds(30);
-        Assert.False(limitador.RegisterFailure());
-        agora += TimeSpan.FromSeconds(31);
-        Assert.False(limitador.IsBlocked);
+        var l = new PairingLimiter(() => agora);
+        PairingTicket t = default;
+        for (var i = 0; i < PairingLimiter.MaxAttemptsPerIp; i++) t = l.TryBegin("1.1.1.1");
+        Assert.Equal(PairingGate.Allowed, t.Gate);
+        Assert.True(t.StartedBlock); // a 5a passa e inicia o bloqueio
+        var ticketDoBloqueio = t;
+        var bloqueado = l.TryBegin("1.1.1.1");
+        Assert.Equal(PairingGate.IpBlocked, bloqueado.Gate);
+        Assert.InRange(bloqueado.RetryAfterSeconds, 59, 60);
+        Assert.Equal(60, ticketDoBloqueio.BlockSeconds);
+
+        // 1 min depois a janela é nova, mas o próximo bloqueio é de 5 min
+        agora += TimeSpan.FromSeconds(61);
+        for (var i = 0; i < PairingLimiter.MaxAttemptsPerIp; i++) t = l.TryBegin("1.1.1.1");
+        Assert.True(t.StartedBlock);
+        agora += TimeSpan.FromMinutes(4);
+        Assert.Equal(PairingGate.IpBlocked, l.TryBegin("1.1.1.1").Gate);
+        agora += TimeSpan.FromMinutes(11);
+        // e o terceiro, de 30 min (o degrau mais alto da escada)
+        for (var i = 0; i < PairingLimiter.MaxAttemptsPerIp; i++) t = l.TryBegin("1.1.1.1");
+        Assert.True(t.StartedBlock);
+        agora += TimeSpan.FromMinutes(29);
+        Assert.Equal(PairingGate.IpBlocked, l.TryBegin("1.1.1.1").Gate);
+        agora += TimeSpan.FromMinutes(1.5);
+        Assert.Equal(PairingGate.Allowed, l.TryBegin("1.1.1.1").Gate);
+
+        // 1 h sem tentativas: volta ao bloqueio de 1 min
+        agora += TimeSpan.FromHours(1);
+        for (var i = 0; i < PairingLimiter.MaxAttemptsPerIp; i++) t = l.TryBegin("1.1.1.1");
+        Assert.True(t.StartedBlock);
+        agora += TimeSpan.FromSeconds(61);
+        Assert.Equal(PairingGate.Allowed, l.TryBegin("1.1.1.1").Gate);
     }
+
+    [Fact]
+    public void Limitador_UmIpBloqueadoNaoBloqueiaOutro_EUmAcertoZeraAConta()
+    {
+        var agora = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+        var l = new PairingLimiter(() => agora);
+        for (var i = 0; i < 5; i++) l.TryBegin("1.1.1.1");
+        Assert.Equal(PairingGate.IpBlocked, l.TryBegin("1.1.1.1").Gate);
+        Assert.Equal(PairingGate.Allowed, l.TryBegin("2.2.2.2").Gate);
+
+        for (var i = 0; i < 3; i++) l.TryBegin("3.3.3.3");
+        l.RegisterSuccess("3.3.3.3");
+        for (var i = 0; i < 4; i++) Assert.False(l.TryBegin("3.3.3.3").StartedBlock); // a conta recomeçou do zero
+        Assert.True(l.TryBegin("3.3.3.3").StartedBlock);
+    }
+
+    [Fact]
+    public void Limitador_Global_FechaOPareamentoAteReabrir()
+    {
+        var agora = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+        var l = new PairingLimiter(() => agora);
+        PairingTicket t = default;
+        for (var i = 0; i < PairingLimiter.MaxAttemptsGlobal; i++) t = l.TryBegin("10.0.0." + i); // um IP diferente a cada vez
+        Assert.Equal(PairingGate.Allowed, t.Gate);
+        Assert.True(t.StartedBlock);
+        Assert.True(l.GlobalLocked);
+        Assert.Equal(PairingGate.GlobalBlocked, l.TryBegin("10.0.1.1").Gate);
+        agora += TimeSpan.FromHours(2); // o tempo sozinho não abre
+        Assert.Equal(PairingGate.GlobalBlocked, l.TryBegin("10.0.1.2").Gate);
+        l.ReopenGlobal(); // o usuário abriu as Configurações
+        Assert.False(l.GlobalLocked);
+        Assert.Equal(PairingGate.Allowed, l.TryBegin("10.0.1.2").Gate);
+    }
+
+    [Fact]
+    public void Limitador_Global_AContaRecomecaDepoisDe10Min()
+    {
+        var agora = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+        var l = new PairingLimiter(() => agora);
+        for (var i = 0; i < PairingLimiter.MaxAttemptsGlobal - 1; i++) l.TryBegin("10.0.0." + i);
+        agora += PairingLimiter.GlobalWindow + TimeSpan.FromSeconds(1);
+        Assert.False(l.TryBegin("10.0.9.9").StartedBlock);
+        Assert.False(l.GlobalLocked);
+    }
+
+    [Fact]
+    public void Limitador_Reserva_EAtomica_Com32PedidosAoMesmoTempo_NoMaximo5Passam()
+    {
+        var l = new PairingLimiter();
+        var passaram = 0;
+        var bloqueados = 0;
+        Parallel.For(0, 32, new ParallelOptions { MaxDegreeOfParallelism = 32 }, _ =>
+        {
+            var t = l.TryBegin("9.9.9.9");
+            if (t.Gate == PairingGate.Allowed) Interlocked.Increment(ref passaram);
+            else Interlocked.Increment(ref bloqueados);
+        });
+        Assert.Equal(PairingLimiter.MaxAttemptsPerIp, passaram);
+        Assert.Equal(32 - PairingLimiter.MaxAttemptsPerIp, bloqueados);
+    }
+
+    [Fact]
+    public void Limitador_Reserva_EAtomica_Com32IpsDiferentes_NoMaximoOLimiteGlobalPassa()
+    {
+        var l = new PairingLimiter();
+        var passaram = 0;
+        Parallel.For(0, 32, new ParallelOptions { MaxDegreeOfParallelism = 32 }, i =>
+        {
+            if (l.TryBegin("10.1.0." + i).Gate == PairingGate.Allowed) Interlocked.Increment(ref passaram);
+        });
+        Assert.Equal(PairingLimiter.MaxAttemptsGlobal, passaram);
+    }
+
+    [Fact]
+    public void JanelaDePareamento_AbertaEnquantoOUsuarioOlha_E2MinDepoisDeFechar()
+    {
+        var agora = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+        var j = new PairingWindow(() => agora);
+        Assert.False(j.IsOpen); // nunca aberta: fechada
+        j.Open();
+        Assert.True(j.IsOpen);
+        agora += TimeSpan.FromHours(3);
+        Assert.True(j.IsOpen); // aberta o tempo que as Configurações ficarem na tela
+        j.Close();
+        Assert.True(j.IsOpen);
+        agora += TimeSpan.FromSeconds(119);
+        Assert.True(j.IsOpen);
+        agora += TimeSpan.FromSeconds(1);
+        Assert.False(j.IsOpen); // fechada aos 2 min
+        j.Open();
+        Assert.True(j.IsOpen); // abrir de novo reabre
+        j.Close();
+        j.Close(); // fechar de novo não renova o prazo
+        agora += TimeSpan.FromSeconds(120);
+        Assert.False(j.IsOpen);
+    }
+
+    [Fact]
+    public void Vagas_PorIp_NoMaximo8_ELiberaAoSair()
+    {
+        var c = new IpRequestCounter();
+        for (var i = 0; i < IpRequestCounter.MaxPerIp; i++) Assert.True(c.TryEnter("1.1.1.1"));
+        Assert.False(c.TryEnter("1.1.1.1"));
+        Assert.True(c.TryEnter("2.2.2.2")); // outro IP tem as suas
+        c.Leave("1.1.1.1");
+        Assert.True(c.TryEnter("1.1.1.1"));
+        Assert.Equal(IpRequestCounter.MaxPerIp, c.Open("1.1.1.1"));
+        for (var i = 0; i < 20; i++) c.Leave("1.1.1.1");
+        Assert.Equal(0, c.Open("1.1.1.1"));
+    }
+
+    [Theory]
+    [InlineData("POST", "/parear", true)]
+    [InlineData("POST", "/parear?x=1", true)]
+    [InlineData("GET", "/parear", false)]
+    [InlineData("POST", "/arquivo", false)]
+    public void EhPareamento_SoPostEmParear(string metodo, string caminho, bool esperado) =>
+        Assert.Equal(esperado, RemoteRules.IsPair(new HttpHead(metodo, caminho, new Dictionary<string, string>())));
 
     [Fact]
     public void HashDaChave_EhSha256EmHexadecimal()

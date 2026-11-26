@@ -12,6 +12,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using MixerDeAudio.Audio;
+using MixerDeAudio.Pc;
 using MixerDeAudio.Remote;
 using QRCoder;
 using Windows.Storage.Streams;
@@ -82,6 +83,7 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
     private string _remoteCode = "";
     private string _remoteCount = "";
     private ImageSource? _remoteQr;
+    private string _remoteWarning = "";
     private string? _qrUrl;
 
     internal SettingsViewModel(SettingsStore store, DeviceTracker devices, RemoteServer? remote = null,
@@ -100,6 +102,10 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
         {
             _remote.ConnectionsChanged += OnConnectionsChanged;
             _remote.StateChanged += OnRemoteStateChanged;
+            _remote.PairingChanged += OnRemoteStateChanged;
+            _remote.NetworksChanged += OnRemoteStateChanged;
+            // Fase 16, D3: a seção do celular está na tela: o pareamento vale agora (e por 2 min depois de fechar, no Dispose)
+            _remote.OpenPairing();
         }
         RefreshRemote();
         if (_updates is not null) _updates.Changed += OnUpdateChanged;
@@ -289,6 +295,18 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
     public string RemoteCount { get => _remoteCount; private set => SetProperty(ref _remoteCount, value); }
     public ImageSource? RemoteQr { get => _remoteQr; private set => SetProperty(ref _remoteQr, value); }
 
+    /// <summary>Aviso da seção (Fase 16): rede pública ou sem rede da casa (D5) e pareamento fechado por tentativas demais (D2). Vazio = sem aviso.</summary>
+    public string RemoteWarning
+    {
+        get => _remoteWarning;
+        private set
+        {
+            if (SetProperty(ref _remoteWarning, value)) OnPropertyChanged(nameof(RemoteWarningVisibility));
+        }
+    }
+
+    public Visibility RemoteWarningVisibility => string.IsNullOrEmpty(_remoteWarning) ? Visibility.Collapsed : Visibility.Visible;
+
     /// <summary>"Gerar novo código": troca o código, esquece todos os celulares e desconecta quem estava conectado.</summary>
     public void NewCode()
     {
@@ -305,6 +323,7 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
         {
             _qrUrl = null;
             RemoteQr = null;
+            RemoteWarning = "";
             return;
         }
         RemoteCode = settings.CodigoCelular ?? "";
@@ -318,7 +337,21 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
             RemoteQr = null;
             return;
         }
-        var ip = LocalAddress();
+        // Fase 16, D5: o QR e o endereço usam o IP de uma interface permitida; sem nenhuma, o celular fica desligado
+        var warning = _remote.PairingLocked
+            ? "Pareamento fechado por tentativas demais. Feche e abra as Configurações para reabrir."
+            : "";
+        var allowed = NetworkRules.PickForQr(_remote.AllowedAddresses);
+        if (allowed is null)
+        {
+            RemoteWarning = "Rede pública ou sem rede da casa: o celular fica desligado." + (warning.Length > 0 ? " " + warning : "");
+            RemoteAddress = "Sem rede privada neste PC.";
+            _qrUrl = null;
+            RemoteQr = null;
+            return;
+        }
+        RemoteWarning = warning;
+        var ip = allowed.ToString();
         RemoteAddress = RemoteRules.BuildAddress(ip, _remote.Port);
         // A imagem só é gerada quando a seção é mostrada e o endereço ou o código mudaram (D18)
         var url = RemoteRules.BuildPairingUrl(ip, _remote.Port, settings.CodigoCelular!);
@@ -415,30 +448,6 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
 
     private void OnRemoteStateChanged() => _ui?.TryEnqueue(() => { if (!_disposed) RefreshRemote(); });
 
-    /// <summary>IPv4 da placa que tem gateway padrão (D17); sem nenhuma, o endereço local.</summary>
-    internal static string LocalAddress()
-    {
-        try
-        {
-            foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
-            {
-                if (nic.OperationalStatus != OperationalStatus.Up) continue;
-                if (nic.NetworkInterfaceType is NetworkInterfaceType.Loopback or NetworkInterfaceType.Tunnel) continue;
-                var props = nic.GetIPProperties();
-                var hasGateway = props.GatewayAddresses.Any(g =>
-                    g.Address.AddressFamily == AddressFamily.InterNetwork && !g.Address.Equals(IPAddress.Any));
-                if (!hasGateway) continue;
-                var unicast = props.UnicastAddresses.FirstOrDefault(u => u.Address.AddressFamily == AddressFamily.InterNetwork);
-                if (unicast is not null) return unicast.Address.ToString();
-            }
-        }
-        catch (Exception ex)
-        {
-            Log.Write($"ERRO celular: endereco local: {ex.Message}");
-        }
-        return IPAddress.Loopback.ToString();
-    }
-
     public void Dispose()
     {
         _disposed = true;
@@ -448,6 +457,9 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
         {
             _remote.ConnectionsChanged -= OnConnectionsChanged;
             _remote.StateChanged -= OnRemoteStateChanged;
+            _remote.PairingChanged -= OnRemoteStateChanged;
+            _remote.NetworksChanged -= OnRemoteStateChanged;
+            _remote.ClosePairing(); // Fase 16, D3: começa a contar os 2 min
         }
     }
 }

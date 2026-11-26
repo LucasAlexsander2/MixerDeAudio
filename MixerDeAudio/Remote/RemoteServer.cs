@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Diagnostics;
 using System.IO;
 using System.Net;
@@ -40,6 +41,12 @@ internal sealed class RemoteServer : IDisposable
     private readonly DispatcherQueue _ui;
     private readonly bool _localOnly;
     private readonly PairingLimiter _limiter = new();
+    private readonly PairingWindow _window = new(); // Fase 16, D3
+    private readonly IpRequestCounter _openByIp = new(); // Fase 16, D7
+    private readonly AllowedNetworks? _networks; // Fase 16, D5 (nulo com --celular-local: só escuta o loopback)
+    private readonly Func<string, Task<bool>>? _confirm; // Fase 16, D4: pergunta no PC (thread da tela); a resposta volta por Task
+    private int _pairing; // 1 enquanto um pareamento espera a confirmação no PC (D4)
+    private long _lastHostLog;
     private readonly object _gate = new();
     private readonly List<RemoteSession> _sessions = new();
     private TcpListener? _listener;
@@ -52,13 +59,48 @@ internal sealed class RemoteServer : IDisposable
     private int _nextNumber;
     private int _screenBusy; // 1 enquanto há um canal /tela/ws aberto (Fase 10, D1: no máximo um por vez)
 
-    public RemoteServer(AudioHub hub, SettingsStore settings, DispatcherQueue ui, bool localOnly)
+    /// <param name="localOnly"><c>--celular-local</c>: escuta só em 127.0.0.1 e liga os atalhos de teste da D8 (confirmação automática,
+    /// janela de pareamento sempre aberta, código que não muda). Sem ele nada disso vale.</param>
+    /// <param name="confirmPairing">Pergunta ao usuário no PC (recebe o nome do celular; <c>true</c> = permitiu). Chamada na thread da tela.</param>
+    public RemoteServer(AudioHub hub, SettingsStore settings, DispatcherQueue ui, bool localOnly, Func<string, Task<bool>>? confirmPairing = null)
     {
         _hub = hub;
         _settings = settings;
         _ui = ui;
         _localOnly = localOnly;
+        _confirm = confirmPairing;
+        if (!localOnly)
+        {
+            _networks = new AllowedNetworks();
+            _networks.Changed += () => NetworksChanged?.Invoke();
+        }
     }
+
+    /// <summary>Os IPs permitidos mudaram (rede nova, categoria mudou). Thread qualquer.</summary>
+    public event Action? NetworksChanged;
+
+    /// <summary>O código mudou (bloqueio ou pareamento aceito). Thread qualquer.</summary>
+    public event Action? PairingChanged;
+
+    /// <summary>IPs do PC por onde o celular pode chegar (D5); com <c>--celular-local</c>, só o loopback.</summary>
+    public IReadOnlyList<IPAddress> AllowedAddresses => _networks?.Addresses ?? new[] { IPAddress.Loopback };
+
+    /// <summary>Sem rede permitida (Pública ou sem rede): o celular fica desligado (D5).</summary>
+    public bool NoAllowedNetwork => _networks is not null && _networks.None;
+
+    /// <summary>O pareamento está fechado pelo bloqueio global até as Configurações serem abertas de novo (D2).</summary>
+    public bool PairingLocked => _limiter.GlobalLocked;
+
+    /// <summary>As Configurações mostram a seção do celular: abre a janela de pareamento e reabre o que o bloqueio global fechou (D2, D3).</summary>
+    public void OpenPairing()
+    {
+        _window.Open();
+        _limiter.ReopenGlobal();
+        _networks?.Refresh();
+    }
+
+    /// <summary>A seção sumiu: o pareamento ainda vale por 2 min (D3).</summary>
+    public void ClosePairing() => _window.Close();
 
     public bool IsRunning => _listener is not null;
     /// <summary>Esperando a porta salva ficar livre (D12).</summary>
@@ -197,6 +239,7 @@ internal sealed class RemoteServer : IDisposable
     public void Dispose()
     {
         if (IsRunning) Stop();
+        _networks?.Dispose();
     }
 
     /// <summary>
@@ -243,6 +286,15 @@ internal sealed class RemoteServer : IDisposable
     private async Task HandleAsync(TcpClient client, CancellationToken serverCt)
     {
         var counted = false;
+        var ipKey = "";
+        var perIp = false; // a vaga por IP vale só fora do loopback (a máquina do próprio usuário)
+        void ReleaseSlot()
+        {
+            if (!counted) return;
+            counted = false;
+            Interlocked.Decrement(ref _openRequests);
+            if (perIp) _openByIp.Leave(ipKey);
+        }
         try
         {
             using (client)
@@ -250,7 +302,18 @@ internal sealed class RemoteServer : IDisposable
                 // Só rede local (D7): o resto é recusado sem resposta
                 var remote = (client.Client.RemoteEndPoint as IPEndPoint)?.Address;
                 if (!RemoteRules.IsPrivateNetwork(remote)) return;
-                if (Interlocked.Increment(ref _openRequests) > MaxOpenRequests) { Interlocked.Decrement(ref _openRequests); return; }
+                // Fase 16, D5: só se o IP do PC que o celular alcançou for de uma interface permitida (o loopback sempre passa)
+                if (!_localOnly && !NetworkRules.LocalAllowed((client.Client.LocalEndPoint as IPEndPoint)?.Address, AllowedAddresses)) return;
+                ipKey = IpKey(remote);
+                perIp = remote is not null && !IPAddress.IsLoopback(remote.IsIPv4MappedToIPv6 ? remote.MapToIPv4() : remote);
+                // Fase 16, D7: no máximo 8 abertas por IP, além das 32 de todas juntas
+                if (perIp && !_openByIp.TryEnter(ipKey)) return;
+                if (Interlocked.Increment(ref _openRequests) > MaxOpenRequests)
+                {
+                    Interlocked.Decrement(ref _openRequests);
+                    if (perIp) _openByIp.Leave(ipKey);
+                    return;
+                }
                 counted = true;
                 client.NoDelay = true;
                 var stream = client.GetStream();
@@ -270,6 +333,17 @@ internal sealed class RemoteServer : IDisposable
                     body = read.Body;
                 }
 
+                // Fase 16, D1: o Host tem que ser um IP permitido do PC, 127.0.0.1, localhost ou [::1], com a porta atual
+                var host = head.Header("Host");
+                if (!RemoteRules.HostAllowed(host, AllowedAddresses, Port))
+                {
+                    LogHostRefused(host);
+                    using var refuse = CancellationTokenSource.CreateLinkedTokenSource(serverCt);
+                    refuse.CancelAfter(HeadTimeout);
+                    await WriteAsync(stream, 421, "text/plain; charset=utf-8", Array.Empty<byte>(), null, refuse.Token).ConfigureAwait(false);
+                    return;
+                }
+
                 var path = head.Path;
                 var q = path.IndexOf('?');
                 if (q >= 0) path = path.Substring(0, q);
@@ -277,8 +351,7 @@ internal sealed class RemoteServer : IDisposable
                 if (path == "/ws")
                 {
                     // O WebSocket vive além do tempo do cabeçalho e não conta como requisição aberta
-                    Interlocked.Decrement(ref _openRequests);
-                    counted = false;
+                    ReleaseSlot();
                     await HandleWebSocketAsync(client, stream, head, serverCt).ConfigureAwait(false);
                     return;
                 }
@@ -286,8 +359,7 @@ internal sealed class RemoteServer : IDisposable
                 if (path == "/tela/ws")
                 {
                     // Fase 10, D1: o canal da imagem vive além do tempo do cabeçalho e não conta como requisição aberta
-                    Interlocked.Decrement(ref _openRequests);
-                    counted = false;
+                    ReleaseSlot();
                     await HandleScreenSocketAsync(stream, head, serverCt).ConfigureAwait(false);
                     return;
                 }
@@ -299,20 +371,25 @@ internal sealed class RemoteServer : IDisposable
                     return;
                 }
 
+                if (RemoteRules.IsPair(head))
+                {
+                    // Fase 16, D4: o /parear tem prazo próprio (corpo até 10 s e confirmação no PC até 65 s), não os 10 s comuns
+                    await PairAsync(stream, head, body, remote, serverCt).ConfigureAwait(false);
+                    return;
+                }
+
                 using var cts = CancellationTokenSource.CreateLinkedTokenSource(serverCt);
                 cts.CancelAfter(HeadTimeout);
                 var ct = cts.Token;
                 if (head.Method == "GET" && path == "/")
-                    await ServePageAsync(stream, ct).ConfigureAwait(false);
+                    await ServePageAsync(stream, host, ct).ConfigureAwait(false);
                 else if (head.Method == "GET" && (path == "/novo" || path == "/novo/"))
-                    await ServeNewPageAsync(stream, ct).ConfigureAwait(false);
+                    await ServeNewPageAsync(stream, host, ct).ConfigureAwait(false);
                 else if (head.Method == "GET" && (path.StartsWith("/app/", StringComparison.Ordinal) || path.StartsWith("/fontes/", StringComparison.Ordinal)))
                     await ServeAssetAsync(stream, head, path, ct).ConfigureAwait(false);
                 else if (head.Method == "GET" && path == "/sessao")
                     // Fase 10b, D11: só diz se o cookie é de um celular pareado; não exige o celular conectado (sem 409)
                     await WriteAsync(stream, Authenticate(head) is null ? 401 : 204, "text/plain; charset=utf-8", Array.Empty<byte>(), null, ct).ConfigureAwait(false);
-                else if (head.Method == "POST" && path == "/parear")
-                    await PairAsync(stream, head, body, remote, ct).ConfigureAwait(false);
                 else if (head.Method == "GET" && path.StartsWith("/icone/", StringComparison.Ordinal))
                     await ServeIconAsync(stream, head, path.Substring("/icone/".Length), ct).ConfigureAwait(false);
                 else
@@ -327,8 +404,22 @@ internal sealed class RemoteServer : IDisposable
         }
         finally
         {
-            if (counted) Interlocked.Decrement(ref _openRequests);
+            ReleaseSlot();
         }
+    }
+
+    private static string IpKey(IPAddress? ip) =>
+        ip is null ? "?" : (ip.IsIPv4MappedToIPv6 ? ip.MapToIPv4() : ip).ToString();
+
+    /// <summary>Uma linha no log por 10 s no máximo, para um ataque de Host não encher o arquivo.</summary>
+    private void LogHostRefused(string? host)
+    {
+        var now = Environment.TickCount64;
+        var last = Interlocked.Read(ref _lastHostLog);
+        if (last != 0 && now - last < 10_000) return;
+        Interlocked.Exchange(ref _lastHostLog, now);
+        var shown = host is null ? "(sem Host)" : (host.Length > 60 ? host.Substring(0, 60) : host);
+        Log.Write($"celular: Host recusado (421): {shown}");
     }
 
     private readonly record struct RequestRead(int Status, HttpHead? Head, byte[] Body);
@@ -355,6 +446,8 @@ internal sealed class RemoteServer : IDisposable
         if (RemoteRules.IsUpload(head)) return new RequestRead(0, head, buffer.AsSpan(end, total - end).ToArray());
         var length = RemoteRules.BodyLength(head);
         if (length < 0) return new RequestRead(413, null, Array.Empty<byte>());
+        // Fase 16, D2: o corpo do /parear só é lido depois de reservar a tentativa; aqui vão só os bytes que já vieram junto
+        if (RemoteRules.IsPair(head)) return new RequestRead(0, head, buffer.AsSpan(end, Math.Min(length, total - end)).ToArray());
         var body = new byte[length];
         var have = Math.Min(length, total - end);
         Buffer.BlockCopy(buffer, end, body, 0, have);
@@ -380,6 +473,7 @@ internal sealed class RemoteServer : IDisposable
         409 => "Conflict",
         411 => "Length Required",
         413 => "Payload Too Large",
+        421 => "Misdirected Request",
         429 => "Too Many Requests",
         431 => "Request Header Fields Too Large",
         503 => "Service Unavailable",
@@ -400,6 +494,7 @@ internal sealed class RemoteServer : IDisposable
         sb.Append("Cache-Control: ").Append(cacheControl).Append("\r\n");
         sb.Append("X-Content-Type-Options: nosniff\r\n");
         sb.Append("Referrer-Policy: no-referrer\r\n");
+        sb.Append("X-Frame-Options: DENY\r\n"); // Fase 16, D6
         if (extraHeaders is not null)
             foreach (var h in extraHeaders) sb.Append(h).Append("\r\n");
         sb.Append("\r\n");
@@ -410,7 +505,7 @@ internal sealed class RemoteServer : IDisposable
 
     // ---- GET / ----
 
-    private static async Task ServePageAsync(NetworkStream stream, CancellationToken ct)
+    private static async Task ServePageAsync(NetworkStream stream, string? host, CancellationToken ct)
     {
         // D7: a página antiga é a concatenação das partes, na ordem de WebAssets.OldPageParts
         using var ms = new MemoryStream();
@@ -425,12 +520,15 @@ internal sealed class RemoteServer : IDisposable
             }
             await res.CopyToAsync(ms, ct).ConfigureAwait(false);
         }
-        await WriteAsync(stream, 200, "text/html; charset=utf-8", ms.ToArray(), null, ct).ConfigureAwait(false);
+        await WriteAsync(stream, 200, "text/html; charset=utf-8", ms.ToArray(), CspHeader(host), ct).ConfigureAwait(false);
     }
+
+    /// <summary>Cabeçalho da política de conteúdo das páginas (Fase 16, D6), com o Host já validado.</summary>
+    private static string[] CspHeader(string? host) => new[] { "Content-Security-Policy: " + RemoteRules.BuildCsp(host?.Trim()) };
 
     // ---- GET /novo (Fase 14, D1) ----
 
-    private static async Task ServeNewPageAsync(NetworkStream stream, CancellationToken ct)
+    private static async Task ServeNewPageAsync(NetworkStream stream, string? host, CancellationToken ct)
     {
         var bytes = await ReadResourceAsync(NewPageResource, ct).ConfigureAwait(false);
         if (bytes is null)
@@ -438,7 +536,7 @@ internal sealed class RemoteServer : IDisposable
             await WriteAsync(stream, 404, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes("pagina indisponivel"), null, ct).ConfigureAwait(false);
             return;
         }
-        await WriteAsync(stream, 200, "text/html; charset=utf-8", bytes, null, ct).ConfigureAwait(false);
+        await WriteAsync(stream, 200, "text/html; charset=utf-8", bytes, CspHeader(host), ct).ConfigureAwait(false);
     }
 
     // ---- GET /app/* e /fontes/* (Fase 14, D1, D5, D6) ----
@@ -475,23 +573,77 @@ internal sealed class RemoteServer : IDisposable
         return ms.ToArray();
     }
 
-    // ---- POST /parear (D6, D7) ----
+    // ---- POST /parear (D6, D7; Fase 16, D2 a D4) ----
 
-    private async Task PairAsync(NetworkStream stream, HttpHead head, byte[] body, IPAddress? remote, CancellationToken ct)
+    private static readonly TimeSpan PairConfirmTimeout = TimeSpan.FromSeconds(65);
+    private const int PairPromptSeconds = 60;
+
+    /// <summary>
+    /// Ordem (Fase 16): Origin; um pedido por vez (409 "ocupado"); janela de pareamento (403 "fechado"); reserva atômica da
+    /// tentativa por IP e global (429 "bloqueado"); SÓ ENTÃO lê o corpo (até 10 s); código errado (401); confirmação no PC
+    /// por até 60 s, com prazo de 65 s (403 "recusado"). Aceito: o código muda. Com <c>--celular-local</c> a confirmação é
+    /// automática, a janela fica sempre aberta e o código não muda (D8).
+    /// </summary>
+    private async Task PairAsync(NetworkStream stream, HttpHead head, byte[] prefetched, IPAddress? remote, CancellationToken serverCt)
     {
         const string json = "application/json; charset=utf-8";
+
+        async Task Reply(int status, string text, string[]? extra = null)
+        {
+            using var rc = CancellationTokenSource.CreateLinkedTokenSource(serverCt);
+            rc.CancelAfter(HeadTimeout);
+            await WriteAsync(stream, status, json, Encoding.UTF8.GetBytes(text), extra, rc.Token).ConfigureAwait(false);
+        }
+
+        // Recusa antes de ler o corpo: responde e descarta o corpo (até 1 KB), senão o fechamento com bytes não lidos vira RST
+        // e o celular perde a resposta
+        async Task Refuse(int status, string text, string[]? extra = null)
+        {
+            await Reply(status, text, extra).ConfigureAwait(false);
+            await DrainAsync(stream, RemoteRules.BodyLength(head) - prefetched.Length, serverCt).ConfigureAwait(false);
+        }
+
         // A origem da página (quando o navegador a informa) tem que ser o próprio servidor
         var origin = head.Header("Origin");
         if (origin is not null && !RemoteRules.OriginMatchesHost(origin, head.Header("Host")))
         {
-            await WriteAsync(stream, 403, json, Encoding.UTF8.GetBytes("{\"ok\":false}"), null, ct).ConfigureAwait(false);
+            await Refuse(403, "{\"ok\":false}").ConfigureAwait(false);
             return;
         }
-        if (_limiter.IsBlocked)
+        if (Volatile.Read(ref _pairing) != 0)
         {
-            await WriteAsync(stream, 429, json, Encoding.UTF8.GetBytes("{\"ok\":false,\"bloqueado\":true}"), new[] { "Retry-After: 60" }, ct).ConfigureAwait(false);
+            await Refuse(409, "{\"ok\":false,\"motivo\":\"ocupado\"}").ConfigureAwait(false);
             return;
         }
+        if (!_localOnly && !_window.IsOpen)
+        {
+            await Refuse(403, "{\"ok\":false,\"motivo\":\"fechado\"}").ConfigureAwait(false);
+            return;
+        }
+
+        var ip = IpKey(remote);
+        var ticket = _limiter.TryBegin(ip); // D2: a tentativa é reservada ANTES de ler o corpo
+        if (ticket.Gate != PairingGate.Allowed)
+        {
+            var extra = ticket.Gate == PairingGate.IpBlocked ? new[] { "Retry-After: " + Math.Max(1, ticket.RetryAfterSeconds) } : null;
+            await Refuse(429, "{\"ok\":false,\"bloqueado\":true,\"motivo\":\"bloqueado\"}", extra).ConfigureAwait(false);
+            return;
+        }
+        if (ticket.StartedBlock)
+        {
+            if (ticket.BlockSeconds > 0) Log.Write($"celular: pareamento bloqueado por {ticket.BlockSeconds} s");
+            if (_limiter.GlobalLocked) Log.Write("celular: pareamento fechado (tentativas demais); abre ao abrir as Configuracoes");
+            if (!_localOnly) await RotateCodeAsync("bloqueio").ConfigureAwait(false);
+            else PairingChanged?.Invoke();
+        }
+
+        byte[]? body;
+        using (var bodyCts = CancellationTokenSource.CreateLinkedTokenSource(serverCt))
+        {
+            bodyCts.CancelAfter(HeadTimeout);
+            body = await ReadBodyAsync(stream, prefetched, RemoteRules.BodyLength(head), bodyCts.Token).ConfigureAwait(false);
+        }
+        if (body is null) return;
 
         string? given = null;
         try
@@ -504,30 +656,100 @@ internal sealed class RemoteServer : IDisposable
         catch (JsonException) { }
         if (given is null)
         {
-            await WriteAsync(stream, 400, json, Encoding.UTF8.GetBytes("{\"ok\":false}"), null, ct).ConfigureAwait(false);
+            await Reply(400, "{\"ok\":false}").ConfigureAwait(false);
             return;
         }
 
         if (!RemoteRules.CodeMatches(_settings.Current.CodigoCelular, given))
         {
             Log.Write($"celular: codigo errado de {remote}");
-            if (_limiter.RegisterFailure()) Log.Write("celular: pareamento bloqueado por 60 s");
-            await WriteAsync(stream, 401, json, Encoding.UTF8.GetBytes("{\"ok\":false}"), null, ct).ConfigureAwait(false);
+            await Reply(401, "{\"ok\":false}").ConfigureAwait(false);
             return;
         }
 
-        _limiter.RegisterSuccess();
-        var key = RemoteRules.NewKey();
+        // D4: um pedido por vez
+        if (Interlocked.CompareExchange(ref _pairing, 1, 0) != 0)
+        {
+            await Reply(409, "{\"ok\":false,\"motivo\":\"ocupado\"}").ConfigureAwait(false);
+            return;
+        }
         var name = RemoteRules.PhoneName(head.Header("User-Agent"));
-        var phone = new PairedPhone { Hash = RemoteRules.HashKey(key), Nome = name, UltimoUso = DateTime.UtcNow };
+        try
+        {
+            bool allowed;
+            if (_localOnly) allowed = true; // D8: só com --celular-local
+            else if (_confirm is null) allowed = false;
+            else
+            {
+                var confirm = _confirm;
+                using var pairCts = CancellationTokenSource.CreateLinkedTokenSource(serverCt);
+                pairCts.CancelAfter(PairConfirmTimeout);
+                try
+                {
+                    var asked = await OnUi(() => confirm(name)).ConfigureAwait(false);
+                    allowed = await asked.WaitAsync(pairCts.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (!serverCt.IsCancellationRequested)
+                {
+                    allowed = false; // sem resposta no prazo
+                }
+            }
+            if (!allowed)
+            {
+                Log.Write($"celular: pareamento recusado no PC ({name})");
+                await Reply(403, "{\"ok\":false,\"motivo\":\"recusado\"}").ConfigureAwait(false);
+                return;
+            }
+
+            _limiter.RegisterSuccess(ip);
+            var key = RemoteRules.NewKey();
+            var phone = new PairedPhone { Hash = RemoteRules.HashKey(key), Nome = name, UltimoUso = DateTime.UtcNow };
+            await OnUi(() =>
+            {
+                // D4: depois de cada pareamento aceito o código muda (no modo de teste não, os roteiros pareiam várias vezes)
+                _settings.Update(s => s with
+                {
+                    ChavesCelular = new List<PairedPhone>(s.ChavesCelular) { phone },
+                    CodigoCelular = _localOnly ? s.CodigoCelular : RemoteRules.NewCode(),
+                });
+                return true;
+            }).ConfigureAwait(false);
+            Log.Write($"celular: pareado ({name})");
+            PairingChanged?.Invoke();
+            var cookie = $"Set-Cookie: {RemoteRules.CookieName}={key}; Max-Age=31536000; SameSite=Strict; Path=/; HttpOnly";
+            await Reply(200, "{\"ok\":true}", new[] { cookie }).ConfigureAwait(false);
+        }
+        finally
+        {
+            Volatile.Write(ref _pairing, 0);
+        }
+    }
+
+    /// <summary>Troca só o código (as chaves ficam) e avisa as Configurações. Qualquer thread.</summary>
+    private async Task RotateCodeAsync(string why)
+    {
         await OnUi(() =>
         {
-            _settings.Update(s => s with { ChavesCelular = new List<PairedPhone>(s.ChavesCelular) { phone } });
+            _settings.Update(s => s with { CodigoCelular = RemoteRules.NewCode() });
             return true;
         }).ConfigureAwait(false);
-        Log.Write($"celular: pareado ({name})");
-        var cookie = $"Set-Cookie: {RemoteRules.CookieName}={key}; Max-Age=31536000; SameSite=Strict; Path=/; HttpOnly";
-        await WriteAsync(stream, 200, json, Encoding.UTF8.GetBytes("{\"ok\":true}"), new[] { cookie }, ct).ConfigureAwait(false);
+        Log.Write($"celular: codigo trocado ({why})");
+        PairingChanged?.Invoke();
+    }
+
+    /// <summary>Corpo de <paramref name="length"/> bytes: os que já vieram junto do cabeçalho e o resto da conexão. Nulo se a conexão fechar antes.</summary>
+    private static async Task<byte[]?> ReadBodyAsync(NetworkStream stream, byte[] prefetched, int length, CancellationToken ct)
+    {
+        var body = new byte[Math.Max(0, length)];
+        var have = Math.Min(body.Length, prefetched.Length);
+        Buffer.BlockCopy(prefetched, 0, body, 0, have);
+        while (have < body.Length)
+        {
+            var n = await stream.ReadAsync(body.AsMemory(have), ct).ConfigureAwait(false);
+            if (n == 0) return null;
+            have += n;
+        }
+        return body;
     }
 
     /// <summary>O celular dono do cookie <c>mx</c>, se a chave for válida (compara o SHA-256 com o do config.json).</summary>
@@ -800,7 +1022,8 @@ internal sealed class RemoteServer : IDisposable
             using var c = CancellationTokenSource.CreateLinkedTokenSource(serverCt);
             c.CancelAfter(HeadTimeout);
             await WriteAsync(stream, status, json, Encoding.UTF8.GetBytes(text), null, c.Token).ConfigureAwait(false);
-            if (status != 200) await DrainAsync(stream, length - prefetched.Length, serverCt).ConfigureAwait(false);
+            // Fase 16, D7: sem cookie válido (401) fecha a conexão sem descartar o corpo (até 16 MB)
+            if (status is not (200 or 401)) await DrainAsync(stream, length - prefetched.Length, serverCt).ConfigureAwait(false);
         }
 
         var phone = Authenticate(head);

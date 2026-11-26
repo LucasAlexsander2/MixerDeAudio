@@ -113,6 +113,12 @@ internal static partial class NativeMethods
     [LibraryImport("shlwapi.dll", StringMarshalling = StringMarshalling.Utf16)]
     public static partial int SHLoadIndirectString(string source, [Out] char[] outBuffer, uint outBufferSize, IntPtr reserved);
 
+    // ---- Fase 16 ----
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool MessageBeep(uint type);
+
     // ---- Controle do PC pelo celular (Fase 9) ----
 
     public static readonly IntPtr HWND_BROADCAST = new(0xFFFF);

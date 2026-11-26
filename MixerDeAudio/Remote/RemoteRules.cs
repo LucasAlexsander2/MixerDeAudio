@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
@@ -105,6 +106,60 @@ public static class RemoteRules
         return string.Equals(authority, host.Trim(), StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// Fase 16, D1: o <c>Host</c> da requisição só vale se for o IP de uma interface permitida do PC, <c>127.0.0.1</c>,
+    /// <c>localhost</c> ou <c>[::1]</c>, sempre com a porta atual. Nome de domínio, porta diferente ou Host ausente são
+    /// recusados (defesa contra DNS rebinding). IPv4 só em quatro números (nada de "127.1" nem de zeros à esquerda).
+    /// </summary>
+    public static bool HostAllowed(string? host, IReadOnlyCollection<IPAddress> allowed, int port)
+    {
+        if (string.IsNullOrWhiteSpace(host)) return false;
+        host = host.Trim();
+        string name;
+        string portText;
+        var bracketed = host[0] == '[';
+        if (bracketed)
+        {
+            var end = host.IndexOf(']');
+            if (end < 0) return false;
+            name = host.Substring(1, end - 1);
+            var rest = host.Substring(end + 1);
+            if (rest.Length == 0 || rest[0] != ':') return false;
+            portText = rest.Substring(1);
+        }
+        else
+        {
+            var colon = host.LastIndexOf(':');
+            if (colon < 0 || host.IndexOf(':') != colon) return false;
+            name = host.Substring(0, colon);
+            portText = host.Substring(colon + 1);
+        }
+        if (!int.TryParse(portText, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var p) || p != port) return false;
+        if (!bracketed && name.Equals("localhost", StringComparison.OrdinalIgnoreCase)) return true;
+        if (name.Length == 0 || name.Contains('%')) return false;
+        if (!IPAddress.TryParse(name, out var ip)) return false;
+        if (bracketed != (ip.AddressFamily == AddressFamily.InterNetworkV6)) return false;
+        if (!bracketed && !string.Equals(ip.ToString(), name, StringComparison.Ordinal)) return false; // só "a.b.c.d" em decimal, sem zeros à esquerda
+        if (ip.Equals(IPAddress.Loopback) || ip.Equals(IPAddress.IPv6Loopback)) return true;
+        foreach (var a in allowed)
+            if (a.Equals(ip)) return true;
+        return false;
+    }
+
+    /// <summary>
+    /// Fase 16, D6: política de conteúdo das páginas (<c>/</c> e <c>/novo</c>). <paramref name="host"/> é o <c>Host</c> já
+    /// validado por <see cref="HostAllowed"/>; se vier com algum caractere fora de letras, números, ponto, hífen, dois-pontos
+    /// e colchetes, o <c>connect-src</c> fica só com <c>'self'</c>.
+    /// </summary>
+    public static string BuildCsp(string? host)
+    {
+        var connect = "'self'";
+        if (!string.IsNullOrEmpty(host) && host.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or ':' or '[' or ']' or '-'))
+            connect += " ws://" + host;
+        return "frame-ancestors 'none'; default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+             + "img-src 'self' blob: data:; font-src 'self'; connect-src " + connect;
+    }
+
     // ---- WebSocket (RFC 6455) ----
 
     /// <summary>Valor de <c>Sec-WebSocket-Accept</c> para o <c>Sec-WebSocket-Key</c> recebido.</summary>
@@ -199,6 +254,14 @@ public static class RemoteRules
         return (q >= 0 ? head.Path.Substring(0, q) : head.Path) == "/arquivo";
     }
 
+    /// <summary>O <c>POST /parear</c> (Fase 16, D2): o corpo só é lido DEPOIS de reservar a tentativa no limitador, por isso não vai na leitura comum.</summary>
+    public static bool IsPair(HttpHead head)
+    {
+        if (head.Method != "POST") return false;
+        var q = head.Path.IndexOf('?');
+        return (q >= 0 ? head.Path.Substring(0, q) : head.Path) == "/parear";
+    }
+
     /// <summary><c>Content-Length</c> do envio: -1 se faltar ou for inválido.</summary>
     public static long UploadLength(HttpHead head)
     {
@@ -262,58 +325,204 @@ public static class RemoteRules
     }
 }
 
+/// <summary>Resultado de <see cref="PairingLimiter.TryBegin"/>.</summary>
+public enum PairingGate { Allowed, IpBlocked, GlobalBlocked }
+
+/// <param name="Gate">Se a tentativa pode seguir.</param>
+/// <param name="RetryAfterSeconds">Quando bloqueada por IP: segundos até liberar (0 no bloqueio global, que só abre pelas Configurações).</param>
+/// <param name="StartedBlock">Esta tentativa (que passou) fechou a conta e iniciou um bloqueio: quem chama troca o código (D2).</param>
+/// <param name="BlockSeconds">Duração do bloqueio por IP que esta tentativa iniciou (0 se não iniciou; o bloqueio global não tem prazo).</param>
+public readonly record struct PairingTicket(PairingGate Gate, int RetryAfterSeconds, bool StartedBlock, int BlockSeconds = 0);
+
 /// <summary>
-/// Limitador de tentativas de pareamento (D7): <see cref="MaxFailures"/> erros seguidos bloqueiam todo o pareamento por
-/// <see cref="BlockFor"/>. Um acerto zera a contagem. O relógio é injetável para os testes. Seguro entre threads.
+/// Limitador de tentativas de pareamento (Fase 16, D2). <see cref="TryBegin"/> reserva a tentativa dentro do <c>lock</c>,
+/// ANTES de ler o código, então tentativas em paralelo não furam o limite. Por IP: <see cref="MaxAttemptsPerIp"/>
+/// tentativas bloqueiam esse IP por 1, 5 e 30 min (crescendo; volta ao começo depois de 1 h sem tentativas). Global:
+/// <see cref="MaxAttemptsGlobal"/> tentativas em 10 min (de todos os IPs) fecham o pareamento até
+/// <see cref="ReopenGlobal"/> (o usuário abrir as Configurações). Um acerto zera a conta do IP e a global. Relógio
+/// injetável. Seguro entre threads.
 /// </summary>
 public sealed class PairingLimiter
 {
-    public const int MaxFailures = 5;
-    public static readonly TimeSpan BlockFor = TimeSpan.FromSeconds(60);
+    public const int MaxAttemptsPerIp = 5;
+    public const int MaxAttemptsGlobal = 12;
+    public static readonly TimeSpan[] BlockLevels = [TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(30)];
+    public static readonly TimeSpan CalmReset = TimeSpan.FromHours(1);
+    public static readonly TimeSpan GlobalWindow = TimeSpan.FromMinutes(10);
+    private const int PruneAbove = 256;
+
+    private sealed class IpState
+    {
+        public int Attempts;
+        public int Level;
+        public DateTime BlockedUntil = DateTime.MinValue;
+        public DateTime Last = DateTime.MinValue;
+    }
 
     private readonly Func<DateTime> _now;
     private readonly object _gate = new();
-    private int _failures;
-    private DateTime _blockedUntil = DateTime.MinValue;
+    private readonly Dictionary<string, IpState> _ips = new(StringComparer.Ordinal);
+    private int _globalCount;
+    private DateTime _globalStart = DateTime.MinValue;
+    private bool _globalLocked;
 
     public PairingLimiter(Func<DateTime>? now = null) => _now = now ?? (() => DateTime.UtcNow);
 
-    /// <summary>Se o pareamento está bloqueado agora. Passado o bloqueio, a contagem recomeça.</summary>
-    public bool IsBlocked
+    /// <summary>Pareamento fechado pelo bloqueio global (abre de novo só com <see cref="ReopenGlobal"/>).</summary>
+    public bool GlobalLocked
+    {
+        get { lock (_gate) return _globalLocked; }
+    }
+
+    /// <summary>Reserva uma tentativa do <paramref name="ip"/>. Chamar antes de ler o corpo.</summary>
+    public PairingTicket TryBegin(string ip)
+    {
+        lock (_gate)
+        {
+            var now = _now();
+            if (_globalLocked) return new PairingTicket(PairingGate.GlobalBlocked, 0, false);
+            if (_ips.Count > PruneAbove) Prune(now);
+            if (!_ips.TryGetValue(ip, out var st)) _ips[ip] = st = new IpState();
+
+            if (st.BlockedUntil > now)
+                return new PairingTicket(PairingGate.IpBlocked, (int)Math.Ceiling((st.BlockedUntil - now).TotalSeconds), false);
+            if (st.BlockedUntil != DateTime.MinValue) { st.BlockedUntil = DateTime.MinValue; st.Attempts = 0; } // o bloqueio acabou: janela nova
+            if (st.Last != DateTime.MinValue && now - st.Last >= CalmReset) { st.Attempts = 0; st.Level = 0; }
+
+            if (_globalStart == DateTime.MinValue || now - _globalStart >= GlobalWindow) { _globalStart = now; _globalCount = 0; }
+            st.Attempts++;
+            st.Last = now;
+            _globalCount++;
+
+            var started = false;
+            var blockSeconds = 0;
+            if (st.Attempts >= MaxAttemptsPerIp)
+            {
+                var length = BlockLevels[Math.Min(st.Level, BlockLevels.Length - 1)];
+                st.BlockedUntil = now + length;
+                st.Level++;
+                started = true;
+                blockSeconds = (int)length.TotalSeconds;
+            }
+            if (_globalCount >= MaxAttemptsGlobal)
+            {
+                _globalLocked = true;
+                started = true;
+            }
+            return new PairingTicket(PairingGate.Allowed, 0, started, blockSeconds);
+        }
+    }
+
+    /// <summary>Acerto: zera a conta do IP e a global.</summary>
+    public void RegisterSuccess(string ip)
+    {
+        lock (_gate)
+        {
+            _ips.Remove(ip);
+            _globalCount = 0;
+            _globalStart = DateTime.MinValue;
+        }
+    }
+
+    /// <summary>O usuário abriu as Configurações: o pareamento fechado pelo bloqueio global abre de novo.</summary>
+    public void ReopenGlobal()
+    {
+        lock (_gate)
+        {
+            _globalLocked = false;
+            _globalCount = 0;
+            _globalStart = DateTime.MinValue;
+        }
+    }
+
+    private void Prune(DateTime now)
+    {
+        var old = new List<string>();
+        foreach (var (ip, st) in _ips)
+            if (st.BlockedUntil <= now && now - st.Last >= CalmReset) old.Add(ip);
+        foreach (var ip in old) _ips.Remove(ip);
+    }
+}
+
+/// <summary>
+/// Janela de pareamento (Fase 16, D3): aberta enquanto as Configurações mostram a seção do celular e por
+/// <see cref="Grace"/> depois de fechadas. Relógio injetável. Seguro entre threads.
+/// </summary>
+public sealed class PairingWindow
+{
+    public static readonly TimeSpan Grace = TimeSpan.FromMinutes(2);
+
+    private readonly Func<DateTime> _now;
+    private readonly object _gate = new();
+    private bool _open;
+    private DateTime _closedAt = DateTime.MinValue;
+
+    public PairingWindow(Func<DateTime>? now = null) => _now = now ?? (() => DateTime.UtcNow);
+
+    public void Open()
+    {
+        lock (_gate) { _open = true; _closedAt = DateTime.MinValue; }
+    }
+
+    /// <summary>Começa a contar os 2 min. Sem efeito se já estava fechada.</summary>
+    public void Close()
+    {
+        lock (_gate)
+        {
+            if (!_open) return;
+            _open = false;
+            _closedAt = _now();
+        }
+    }
+
+    public bool IsOpen
     {
         get
         {
             lock (_gate)
             {
-                if (_blockedUntil == DateTime.MinValue) return false;
-                if (_now() < _blockedUntil) return true;
-                _blockedUntil = DateTime.MinValue;
-                _failures = 0;
-                return false;
+                if (_open) return true;
+                return _closedAt != DateTime.MinValue && _now() - _closedAt < Grace;
             }
         }
     }
+}
 
-    /// <summary>Registra um erro. Devolve verdadeiro se este erro iniciou o bloqueio.</summary>
-    public bool RegisterFailure()
+/// <summary>
+/// Requisições abertas por IP (Fase 16, D7): no máximo <see cref="MaxPerIp"/> ao mesmo tempo para cada IP, além do limite
+/// de todas juntas que o servidor já tinha. Seguro entre threads.
+/// </summary>
+public sealed class IpRequestCounter
+{
+    public const int MaxPerIp = 8;
+
+    private readonly object _gate = new();
+    private readonly Dictionary<string, int> _open = new(StringComparer.Ordinal);
+
+    /// <summary>Reserva uma vaga para o <paramref name="ip"/>; falso se ele já tem <see cref="MaxPerIp"/> abertas.</summary>
+    public bool TryEnter(string ip)
     {
         lock (_gate)
         {
-            if (_blockedUntil != DateTime.MinValue && _now() < _blockedUntil) return false;
-            _failures++;
-            if (_failures < MaxFailures) return false;
-            _blockedUntil = _now() + BlockFor;
+            _open.TryGetValue(ip, out var n);
+            if (n >= MaxPerIp) return false;
+            _open[ip] = n + 1;
             return true;
         }
     }
 
-    /// <summary>Registra um acerto: zera a contagem.</summary>
-    public void RegisterSuccess()
+    public void Leave(string ip)
     {
         lock (_gate)
         {
-            _failures = 0;
-            _blockedUntil = DateTime.MinValue;
+            if (!_open.TryGetValue(ip, out var n)) return;
+            if (n <= 1) _open.Remove(ip);
+            else _open[ip] = n - 1;
         }
+    }
+
+    public int Open(string ip)
+    {
+        lock (_gate) return _open.TryGetValue(ip, out var n) ? n : 0;
     }
 }

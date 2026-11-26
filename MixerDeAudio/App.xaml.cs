@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
@@ -101,7 +102,7 @@ public partial class App : Application
         _hub.BecameIdle += OnHubIdle;
 
         // Servidor do celular (Fase 6, D10 e D12): desligado por padrão; liga na partida e quando o interruptor muda
-        _remote = new RemoteServer(_hub, Settings, UiQueue!, commandLine.CelularLocal);
+        _remote = new RemoteServer(_hub, Settings, UiQueue!, commandLine.CelularLocal, AskPairing);
         Settings.Changed += OnSettingsChanged;
         _remote.Apply();
 
@@ -161,6 +162,18 @@ public partial class App : Application
     {
         Log.Write("atualizacao: reiniciando para aplicar");
         Shutdown(exitApplication: false);
+    }
+
+    /// <summary>
+    /// Fase 16, D4 e D9: pergunta no PC se o celular pode parear (a janelinha aparece sem roubar o foco, com som e balão).
+    /// Sem resposta em 60 s conta como recusa. Chamada na thread da tela pelo servidor do celular.
+    /// </summary>
+    private Task<bool> AskPairing(string phone)
+    {
+        var title = $"Permitir o {phone} a controlar este PC?";
+        _tray?.ShowBalloon("Mixer de Áudio", title);
+        return Flyout.PcPromptWindow.AskAsync(title,
+            "Um celular com o código certo quer parear. Se não foi você, recuse.", "Permitir", "Recusar", 60, resultOnTimeout: false, hidden: _hiddenTest);
     }
 
     private void OnSettingsChanged()

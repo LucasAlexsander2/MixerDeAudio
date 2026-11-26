@@ -12,6 +12,13 @@
 //   celular.exe cabecalhos <porta> <caminho> [etag|-]
 //                                                    -> (Fase 14) GET sem cookie (paginas e arquivos estaticos) com If-None-Match opcional; le a resposta ate fechar e imprime
 //                                                       status|content-type|cache-control|etag|sha256-do-corpo|bytes|sha256-do-corpo-sem-CR (cabecalho ausente = vazio)
+//                                                       (Fase 16) mais dois campos no fim: |x-frame-options|content-security-policy
+//   celular.exe hostget <porta> <caminho> <host> [chave|-]
+//                                                    -> (Fase 16) GET cru com o cabecalho Host que voce mandar (so conecta no 127.0.0.1); imprime so o codigo HTTP.
+//                                                       Em /ws e /tela/ws manda os cabecalhos de upgrade, com Origin igual ao Host.
+//   celular.exe rajada <porta> <n> [codigo]          -> (Fase 16) abre n conexoes ao mesmo tempo, manda o cabecalho de POST /parear de todas e SEGURA o corpo;
+//                                                       depois de todas conectadas le as respostas que ja vieram (as bloqueadas, sem esperar o corpo), solta o corpo
+//                                                       ({"codigo":"<codigo>"}, padrao 000000, que tem de ser ERRADO) e le o resto. Imprime "401=<a> 429=<b> outros=<c>".
 //   celular.exe ferramenta <porta> <chave> <json>    -> (Fase 9) conecta, confere que o estado traz "teste":true (o app esta com --teste-pc) e so
 //                                                       entao envia o comando de ferramenta (energia, energiaCancelar, projecao, telas, atualizar,
 //                                                       desconectar); sem "teste":true RECUSA (codigo 3) sem enviar nada
@@ -85,6 +92,10 @@ try
             return await Cabecalhos(int.Parse(args[1]), args[2], args.Length > 3 ? args[3] : null);
         case "get" when args.Length >= 3:
             return await Get(int.Parse(args[1]), args[2], args.Length > 3 && args[3] != "-" ? args[3] : null, args.Length > 4 && args[4] != "-" ? args[4] : null);
+        case "hostget" when args.Length >= 4:
+            return await HostGet(int.Parse(args[1]), args[2], args[3], args.Length > 4 && args[4] != "-" ? args[4] : null);
+        case "rajada" when args.Length >= 3:
+            return await Rajada(int.Parse(args[1]), int.Parse(args[2]), args.Length > 3 ? args[3] : "000000");
         case "ferramenta" when args.Length >= 4:
             return await Ferramenta(int.Parse(args[1]), args[2], args[3]);
         case "tela" when args.Length >= 4:
@@ -175,7 +186,7 @@ static async Task<int> Reconectar(int porta, string chave, int segundos, string?
 
 static int Uso()
 {
-    Console.Error.WriteLine("uso: parear <porta> <codigo> | estado <porta> <chave> | enviar <porta> <chave> <json> | ciclos <porta> <chave> <n> | get <porta> <caminho> [chave|-] [origin|-] | cabecalhos <porta> <caminho> [etag|-] | segurar <porta> <chave> <segundos> [arquivo-parar] | reconectar <porta> <chave> <segundos> [arquivo-parar] | ferramenta <porta> <chave> <json> | brilhorajada <porta> <chave> <tela> <de> <ate> | segundo <porta> <chave> | tela <porta> <chave|-> <q:mon:w:seg:ok|semok;...> | arquivo <porta> <chave> <caminho> [nome] | info <porta> <chave> <seg-ligado> <seg-depois>");
+    Console.Error.WriteLine("uso: parear <porta> <codigo> | estado <porta> <chave> | enviar <porta> <chave> <json> | ciclos <porta> <chave> <n> | get <porta> <caminho> [chave|-] [origin|-] | cabecalhos <porta> <caminho> [etag|-] | hostget <porta> <caminho> <host> [chave|-] | rajada <porta> <n> [codigo] | segurar <porta> <chave> <segundos> [arquivo-parar] | reconectar <porta> <chave> <segundos> [arquivo-parar] | ferramenta <porta> <chave> <json> | brilhorajada <porta> <chave> <tela> <de> <ate> | segundo <porta> <chave> | tela <porta> <chave|-> <q:mon:w:seg:ok|semok;...> | arquivo <porta> <chave> <caminho> [nome] | info <porta> <chave> <seg-ligado> <seg-depois>");
     return 2;
 }
 
@@ -324,6 +335,80 @@ static async Task<int> Get(int porta, string caminho, string? chave, string? ori
     return 0;
 }
 
+// Fase 16 (D1): GET cru com o Host que o roteiro escolher. So conecta no 127.0.0.1; o Host e o que muda.
+static async Task<int> HostGet(int porta, string caminho, string host, string? chave)
+{
+    using var tcp = new TcpClient();
+    await tcp.ConnectAsync(Host, porta);
+    var stream = tcp.GetStream();
+    var sb = new StringBuilder();
+    sb.Append($"GET {caminho} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n");
+    if (chave is not null) sb.Append($"Cookie: mx={chave}\r\n");
+    if (caminho is "/ws" or "/tela/ws") sb.Append($"Origin: http://{host}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n");
+    sb.Append("\r\n");
+    await stream.WriteAsync(Encoding.ASCII.GetBytes(sb.ToString()));
+    var buffer = new byte[256];
+    using var cts = new CancellationTokenSource(5000);
+    var n = await stream.ReadAsync(buffer, cts.Token);
+    var linha = Encoding.ASCII.GetString(buffer, 0, n).Split("\r\n")[0];
+    var partes = linha.Split(' ');
+    Console.WriteLine(partes.Length >= 2 ? partes[1] : "0");
+    return 0;
+}
+
+// Fase 16 (D2): n pedidos de pareamento ao mesmo tempo, com o corpo seguro ate todos terem mandado o cabecalho.
+// O codigo tem que ser ERRADO (a rajada nunca pareia nada).
+static async Task<int> Rajada(int porta, int n, string codigo)
+{
+    var corpo = JsonSerializer.Serialize(new { codigo });
+    var conexoes = new List<(TcpClient Tcp, NetworkStream Stream)>();
+    for (var i = 0; i < n; i++)
+    {
+        var tcp = new TcpClient { NoDelay = true };
+        await tcp.ConnectAsync(Host, porta);
+        conexoes.Add((tcp, tcp.GetStream()));
+    }
+    var cab = $"POST /parear HTTP/1.1\r\nHost: {Host}:{porta}\r\nContent-Type: application/json\r\nContent-Length: {Encoding.UTF8.GetByteCount(corpo)}\r\nConnection: close\r\n\r\n";
+    foreach (var c in conexoes) await c.Stream.WriteAsync(Encoding.ASCII.GetBytes(cab));
+
+    var respostas = new string?[n];
+    async Task<string?> Ler(int i, int ms)
+    {
+        try
+        {
+            using var cts = new CancellationTokenSource(ms);
+            using var acumulado = new MemoryStream();
+            var buf = new byte[1024];
+            while (true)
+            {
+                var lidos = await conexoes[i].Stream.ReadAsync(buf, cts.Token);
+                if (lidos == 0) break;
+                acumulado.Write(buf, 0, lidos);
+                if (Encoding.ASCII.GetString(acumulado.GetBuffer(), 0, (int)acumulado.Length).Contains("\r\n\r\n")) break;
+            }
+            var linha = Encoding.ASCII.GetString(acumulado.GetBuffer(), 0, (int)acumulado.Length).Split("\r\n")[0].Split(' ');
+            return linha.Length >= 2 ? linha[1] : null;
+        }
+        catch { return null; }
+    }
+
+    // 1) as bloqueadas respondem sem esperar o corpo
+    await Task.Delay(1500);
+    var antes = await Task.WhenAll(Enumerable.Range(0, n).Select(i => Ler(i, 800)));
+    for (var i = 0; i < n; i++) respostas[i] = antes[i];
+    // 2) solta o corpo de todas ao mesmo tempo e le o resto
+    await Task.WhenAll(Enumerable.Range(0, n).Where(i => respostas[i] is null).Select(async i =>
+    {
+        try { await conexoes[i].Stream.WriteAsync(Encoding.UTF8.GetBytes(corpo)); } catch { }
+    }));
+    var depois = await Task.WhenAll(Enumerable.Range(0, n).Select(i => respostas[i] is null ? Ler(i, 5000) : Task.FromResult(respostas[i])));
+    foreach (var c in conexoes) c.Tcp.Dispose();
+    var c401 = depois.Count(r => r == "401");
+    var c429 = depois.Count(r => r == "429");
+    Console.WriteLine($"401={c401} 429={c429} outros={n - c401 - c429}");
+    return 0;
+}
+
 static async Task<int> Cabecalhos(int porta, string caminho, string? etag)
 {
     using var tcp = new TcpClient();
@@ -351,7 +436,7 @@ static async Task<int> Cabecalhos(int porta, string caminho, string? etag)
     var corpo = tudo.AsSpan(fim + 4).ToArray();
     var sha = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(corpo)).ToLowerInvariant();
     var semCr = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(corpo.Where(b => b != 13).ToArray())).ToLowerInvariant();
-    Console.WriteLine($"{status}|{H("Content-Type")}|{H("Cache-Control")}|{H("ETag")}|{sha}|{corpo.Length}|{semCr}");
+    Console.WriteLine($"{status}|{H("Content-Type")}|{H("Cache-Control")}|{H("ETag")}|{sha}|{corpo.Length}|{semCr}|{H("X-Frame-Options")}|{H("Content-Security-Policy")}");
     return 0;
 }
 

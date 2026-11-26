@@ -133,6 +133,23 @@ Os roteiros usam `BackupConfig` e `RestoreConfig`, reabrem o app do usuário e n
 
 (preenchido na implementação e na conferência)
 
+### Parte 16a — Sonnet, 26/11/2026
+
+- **D1 Host:** `RemoteRules.HostAllowed` (pura) e a recusa 421 sem corpo em `HandleAsync`, logo depois de ler o cabeçalho (vale para `/ws`, `/tela/ws`, `/arquivo`, `/parear`); log de recusa no máximo a cada 10 s.
+- **D2 limitador:** `PairingLimiter.TryBegin(ip)` (por IP: 5 tentativas, bloqueios de 1, 5 e 30 min, volta ao começo depois de 1 h; global: 12 tentativas em 10 min fecham até `ReopenGlobal`). A reserva vem antes de ler o corpo (`ReadRequestAsync` não lê mais o corpo do `/parear`). Cada bloqueio troca o código.
+- **D3 janela:** `PairingWindow` (relógio injetado). `OpenPairing()` e `ClosePairing()` do servidor, chamados pelo `SettingsViewModel` ao criar e ao soltar. 403 com `motivo: fechado`.
+- **D4 e D9 confirmação:** `PcPromptWindow.xaml(.cs)` (sem ativar, som `MessageBeep`, prazo de 60 s, resposta por `Task`), ligada em `App.AskPairing`. O `/parear` tem prazo de 65 s; 409 `ocupado`, 403 `recusado`, 429 `bloqueado`. Pareamento aceito troca o código. Recusas antes do corpo descartam até 1 KB (senão o RST apaga a resposta).
+- **D5 redes:** `Pc/NetworkRules.cs` (pura), `Pc/NetworkCategories.Native.cs` (COM `netprofm` por `GeneratedComInterface`, sem pacote), `Remote/AllowedNetworks.cs` (relê no `NetworkAddressChanged` e a cada 60 s no máximo). Conexão recusada se o IP local não for permitido (loopback sempre passa). Leitura falha ou rede fora da lista do Windows vale como Privada, com uma linha no log.
+- **D6 cabeçalhos:** `X-Frame-Options: DENY` em toda resposta (`WriteAsync`), CSP em `/` e `/novo` por `RemoteRules.BuildCsp(host)`. As respostas 101 de WebSocket não levam os cabeçalhos.
+- **D7:** `IpRequestCounter` (8 por IP; o loopback não conta por IP, só nas 32 gerais); `/arquivo` sem cookie (401) fecha sem drenar.
+- **D8:** os atalhos valem só com `localOnly` (`--celular-local`): confirmação automática, janela sempre aberta, código que não muda.
+- **Configurações:** aviso de rede pública ou sem rede (`RemoteWarning`), aviso do pareamento fechado por bloqueio global, código e QR atualizados em `PairingChanged` e `NetworksChanged`; QR e endereço usam um IP permitido. Frente nova: `conexao.js` lê o `motivo`; `acesso.js` mostra "Confirme no PC" (após 0,8 s de espera); "Abra as Configurações no PC para parear", "O PC recusou" e "Muitas tentativas…". `antigo/` não foi tocado.
+- **Testes:** `RemoteRulesTests` reescritos para a D1 a D3, D6 e D7 (Host, CSP, limitador por IP/global/atômico com `Parallel.For` de 32, janela, vagas por IP); `NetworkRulesTests` novo; `NetworkRules.cs` ligado ao `MixerDeAudio.Tests.csproj`. Bateria: 1153 aprovados (1082 + 71), 0 falhas.
+- **Build:** `dotnet build -c Release -p:Platform=x64`: 0 avisos, 0 erros.
+- **Roteiro:** `tools/testes/roteiro-f16.ps1 -Parte a` (casos 16a.1, 16a.3, 16a.2, nessa ordem; o 2 vai por último porque deixa o IP bloqueado por 1 min). `celular.cs` ganhou `hostget` e `rajada`, e o `cabecalhos` passou a trazer `X-Frame-Options` e `Content-Security-Policy` nos dois últimos campos. **Não executei roteiro nem o app.**
+- **Desvios:** (1) o log de bloqueio mantém o texto "pareamento bloqueado por 60 s" (o `roteiro-f6` confere esse texto); (2) loopback fica fora do limite de 8 por IP, para o 16a.2 conseguir 32 conexões; (3) `PairingLimiter` perdeu `IsBlocked`/`RegisterFailure` (o `roteiro-f6` 6.2 continua válido: 5 erros dão 401 e o 6º, certo, dá 429).
+- **Sem conferir:** a `PcPromptWindow` na tela (foco, posição, tema, som), a leitura real do `INetworkListManager` (vtables escritas pela documentação, sem rodar), a lista de interfaces com Wi-Fi/VPN reais, o ícone/balão de pareamento, a compatibilidade da CSP com a página antiga e a `/novo` no navegador (`unsafe-inline` cobre os scripts e estilos embutidos), e todos os roteiros.
+
 ## 8. Pendências
 
 - 16c (HTTPS): o estudo no iPhone e a decisão (P5).
