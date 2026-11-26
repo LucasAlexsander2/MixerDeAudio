@@ -157,6 +157,30 @@
                                    Text="{x:Bind Model.RemoteCount, Mode=OneWay}" />
                         <Button AutomationProperties.AutomationId="RemoteDisconnect" AutomationProperties.Name="Desconectar"
                                 Content="Desconectar" Click="OnDisconnectClick" Visibility="{x:Bind Model.RemoteDisconnectVisibility, Mode=OneWay}" />
+                        <TextBlock Text="Celulares pareados" Style="{ThemeResource BodyStrongTextBlockStyle}" Margin="0,8,0,0" />
+                        <TextBlock AutomationProperties.AutomationId="PhoneListEmpty" Text="Nenhum celular pareado."
+                                   Visibility="{x:Bind Model.PhonesEmptyVisibility, Mode=OneWay}" Opacity="0.7" FontSize="12" />
+                        <ItemsControl x:Name="PhoneList" AutomationProperties.AutomationId="PhoneList"
+                                      AutomationProperties.Name="Celulares pareados" AutomationProperties.AccessibilityView="Content"
+                                      ItemsSource="{x:Bind Model.Phones}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:PhoneItemView">
+                                    <Grid ColumnSpacing="8" MinHeight="36">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock AutomationProperties.AutomationId="PhoneName" Text="{x:Bind Label}"
+                                                   VerticalAlignment="Center" TextWrapping="Wrap" />
+                                        <Button Grid.Column="1" AutomationProperties.AutomationId="PhoneForget"
+                                                AutomationProperties.Name="Esquecer" Content="Esquecer"
+                                                Tag="{x:Bind Hash}" Click="OnForgetPhoneClick" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock Text="Até 5 celulares. Um celular sem uso há 30 dias é esquecido sozinho."
+                                   TextWrapping="Wrap" Opacity="0.7" FontSize="12" />
                         <Button AutomationProperties.AutomationId="RemoteNewCode" AutomationProperties.Name="Gerar novo código"
                                 Content="Gerar novo código" Click="OnNewCodeClick" />
                         <TextBlock Text="Gerar um novo código desconecta todos os celulares. A conexão é só pela rede de casa, sem criptografia."

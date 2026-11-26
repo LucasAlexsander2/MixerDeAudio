@@ -79,10 +79,10 @@ if ($Parte -eq 'b') {
     $addrOk = $addr -match "^http://\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:$porta$"
     try { if ($eNew) { $eNew.GetCurrentPattern([Windows.Automation.ScrollItemPattern]::Pattern).ScrollIntoView(); Start-Sleep -Milliseconds 400 } } catch {}
     $shot = Shot $h 'f6-config'
-    Resultado '6.9 Secao nas Configuracoes' ([bool]($ligado -and $addrOk -and $codeUi -eq $cfg.CodigoCelular -and $qrOk -and $cnt -like '0 celulares*' -and $null -ne $eNew)) "interruptor ligado=$ligado; RemoteAddress='$addr' (porta $porta)=$addrOk; RemoteCode igual ao do config.json=$($codeUi -eq $cfg.CodigoCelular); RemoteQr existe com tamanho >= 150=$qrOk; RemoteCount='$cnt'; RemoteNewCode existe=$($null -ne $eNew); captura=$shot"
+    Resultado '6.9 Secao nas Configuracoes' ([bool]($ligado -and $addrOk -and $codeUi -eq (CodigoDoConfig $cfg) -and $qrOk -and $cnt -like '0 celulares*' -and $null -ne $eNew)) "interruptor ligado=$ligado; RemoteAddress='$addr' (porta $porta)=$addrOk; RemoteCode igual ao do config.json=$($codeUi -eq (CodigoDoConfig $cfg)); RemoteQr existe com tamanho >= 150=$qrOk; RemoteCount='$cnt'; RemoteNewCode existe=$($null -ne $eNew); captura=$shot"
 
     # 6.10 Novo codigo
-    $codigoAntigo = $cfg.CodigoCelular
+    $codigoAntigo = (CodigoDoConfig $cfg)
     $par = CelularParear $porta $codigoAntigo
     $chave = $par.Chave
     if (-not $chave) { throw 'o pareamento falhou' }
@@ -94,10 +94,10 @@ if ($Parte -eq 'b') {
     $seg = $null
     $velha = CelularGet $porta '/ws' $chave
     $cfg2 = Config
-    $mudou = ($cfg2.CodigoCelular -match '^\d{6}$') -and ($cfg2.CodigoCelular -ne $codigoAntigo)
+    $mudou = ((CodigoDoConfig $cfg2) -match '^\d{6}$') -and ((CodigoDoConfig $cfg2) -ne $codigoAntigo)
     $semChaves = @($cfg2.ChavesCelular).Count -eq 0
     $zeroNaTela = WaitFor { (FindById $h 'RemoteCount').Current.Name -like '0 celulares*' } 3
-    $codeNovoUi = (FindById $h 'RemoteCode').Current.Name -eq $cfg2.CodigoCelular
+    $codeNovoUi = (FindById $h 'RemoteCode').Current.Name -eq (CodigoDoConfig $cfg2)
     $logNovo = (LogCount 'celular: novo codigo gerado') -ge 1
     Resultado '6.10 Novo codigo' ([bool]($umNaTela -and $fechou -and $velha -eq 401 -and $mudou -and $semChaves -and $zeroNaTela -and $codeNovoUi -and $logNovo)) "com o celular conectado o RemoteCount mostrou 1=$umNaTela; WebSocket do celular de teste fechado=$fechou; chave antiga em /ws=$velha (esperado 401); codigo mudou=$mudou; config.json sem chaves=$semChaves; RemoteCode na tela igual ao novo=$codeNovoUi; RemoteCount voltou a 0=$zeroNaTela; log=$logNovo"
 

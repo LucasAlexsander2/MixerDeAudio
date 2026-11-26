@@ -1,5 +1,14 @@
 [
   {
+    "versao": "1.5.0",
+    "itens": [
+      { "icone": "E72E", "titulo": "Pareamento mais seguro", "texto": "Para parear um celular novo, as Configurações precisam estar abertas e o PC pergunta se você permite. O código muda depois de cada pareamento, e tentativas erradas bloqueiam por cada vez mais tempo." },
+      { "icone": "E8EA", "titulo": "Celulares pareados", "texto": "Nas Configurações, veja os celulares pareados e esqueça os que não usa mais. Um celular sem uso há 30 dias é esquecido sozinho, e o limite é de 5." },
+      { "icone": "E7BA", "titulo": "Avisos no PC", "texto": "Um balão avisa quando um celular conecta ou vê a tela, e o ícone da bandeja ganha um ponto enquanto isso. “Desligar agora” espera 10 s, com Cancelar no PC." },
+      { "icone": "E8A5", "titulo": "Arquivos recebidos", "texto": "Programas recebidos pelo celular chegam com .txt no fim do nome, para não abrirem com dois cliques." }
+    ]
+  },
+  {
     "versao": "1.4.0",
     "itens": [
       { "icone": "E8EA", "titulo": "Controladora PC completa em /novo", "texto": "Todas as áreas no visual novo: Início com favoritos e CPU, GPU e RAM, Som, Energia, Monitores, Timer de sono, Estado do PC, Controle, Tela do PC, Janelas, Atalhos e Enviar. A página de sempre continua igual em /." },

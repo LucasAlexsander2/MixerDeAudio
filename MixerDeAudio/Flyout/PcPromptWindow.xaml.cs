@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Windowing;
@@ -46,6 +47,7 @@ public sealed partial class PcPromptWindow : Window
         BodyText.Text = _countdown?.Invoke(_left) ?? text;
         PrimaryButton.Content = primary;
         SecondaryButton.Content = secondary;
+        if (string.IsNullOrEmpty(secondary)) SecondaryButton.Visibility = Visibility.Collapsed; // só um botão (energia: Cancelar)
 
         Title = "Mixer de Áudio";
         SystemBackdrop = new Microsoft.UI.Xaml.Media.DesktopAcrylicBackdrop();
@@ -70,13 +72,19 @@ public sealed partial class PcPromptWindow : Window
     /// <summary>
     /// Mostra a pergunta e espera a resposta. <paramref name="timeoutSeconds"/> é o prazo; <paramref name="countdownText"/>
     /// (opcional) monta o texto a cada segundo a partir dos segundos que faltam. <paramref name="hidden"/> (modo de teste
-    /// oculto) põe a janela fora de todas as telas e sem som.
+    /// oculto) põe a janela fora de todas as telas e sem som. <paramref name="secondary"/> vazio esconde o segundo botão.
+    /// <paramref name="close"/> cancelado fecha a janela com <c>false</c> (o plano acabou ou foi cancelado em outro lugar).
     /// </summary>
     public static Task<bool> AskAsync(string title, string text, string primary, string secondary, int timeoutSeconds,
-        bool resultOnTimeout = false, Func<int, string>? countdownText = null, bool hidden = false)
+        bool resultOnTimeout = false, Func<int, string>? countdownText = null, bool hidden = false, CancellationToken close = default)
     {
         var window = new PcPromptWindow(title, text, primary, secondary, timeoutSeconds, resultOnTimeout, countdownText);
         window.Present(hidden);
+        if (close.CanBeCanceled)
+        {
+            var queue = window.DispatcherQueue;
+            close.Register(() => queue.TryEnqueue(() => window.Finish(false)));
+        }
         return window._result.Task;
     }
 

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.UI.Dispatching;
 using MixerDeAudio.Remote;
@@ -19,6 +20,8 @@ internal sealed class PcController
     private readonly DispatcherQueue _ui;
     private readonly bool _testMode;
     private readonly Action<string, string> _balloon;
+    private readonly Func<PowerAction, int, CancellationToken, Task<bool>>? _askNow; // Fase 16, D13: janelinha do "agora" (true = Cancelar)
+    private CancellationTokenSource? _nowPrompt;
     private readonly PowerTimer _power = new();
     private IPcActions? _actions;
     private BrightnessWorker? _brightness;
@@ -40,11 +43,13 @@ internal sealed class PcController
     private float _sleepOriginal = -1f;
     private bool _sleepOwner;
 
-    public PcController(DispatcherQueue ui, bool testMode, Action<string, string> balloon)
+    public PcController(DispatcherQueue ui, bool testMode, Action<string, string> balloon,
+        Func<PowerAction, int, CancellationToken, Task<bool>>? askNow = null)
     {
         _ui = ui;
         _testMode = testMode;
         _balloon = balloon;
+        _askNow = askNow;
     }
 
     /// <summary>O plano de energia ou a projeção mudou (para atualizar o celular). Thread da tela.</summary>
@@ -65,25 +70,57 @@ internal sealed class PcController
 
     // ---- Energia (D8) ----
 
-    /// <summary>Agora (0) ou daqui a <paramref name="seconds"/>. Um timer por vez: o novo substitui o anterior.</summary>
+    /// <summary>
+    /// Agora (0) ou daqui a <paramref name="seconds"/>. Um timer por vez: o novo substitui o anterior. Fase 16, D13: o
+    /// "agora" espera 10 s, com a janelinha "Desligando em 10 s" e Cancelar no PC, e o mesmo balão dos agendamentos.
+    /// </summary>
     public void SchedulePower(PowerAction action, int seconds)
     {
         var id = PowerRules.Id(action);
-        Log.Write($"celular: energia {id} em {seconds} s");
-        if (seconds == 0)
-        {
-            Run(action);
-            return;
-        }
+        var now = seconds == 0;
+        seconds = PowerRules.EffectiveSeconds(seconds);
+        Log.Write(now ? $"celular: energia {id} agora (em {seconds} s)" : $"celular: energia {id} em {seconds} s");
+        CloseNowPrompt();
         _power.Schedule(action, seconds);
         Notify("Mixer de Áudio", PowerRules.BalloonText(action, seconds));
         Arm();
         PlanChanged();
+        if (now) _ = ShowNowPromptAsync(action, seconds);
+    }
+
+    /// <summary>A janelinha do "agora": Cancelar cancela o plano (o mesmo caminho do celular e da bandeja). Some sozinha se o plano acabar.</summary>
+    private async Task ShowNowPromptAsync(PowerAction action, int seconds)
+    {
+        if (_askNow is null) return;
+        var cts = new CancellationTokenSource();
+        _nowPrompt = cts;
+        try
+        {
+            var cancel = await _askNow(action, seconds, cts.Token);
+            if (cancel && ReferenceEquals(_nowPrompt, cts)) CancelPower("cancelado no PC");
+        }
+        catch (Exception ex)
+        {
+            Log.Write($"ERRO celular: janelinha de energia: {ex.Message}");
+        }
+        finally
+        {
+            if (ReferenceEquals(_nowPrompt, cts)) _nowPrompt = null;
+            cts.Dispose();
+        }
+    }
+
+    private void CloseNowPrompt()
+    {
+        var cts = _nowPrompt;
+        _nowPrompt = null;
+        try { cts?.Cancel(); } catch (ObjectDisposedException) { }
     }
 
     /// <summary>Cancela o timer de energia (celular ou item da bandeja).</summary>
     public void CancelPower(string? reason = null)
     {
+        CloseNowPrompt();
         if (!_power.Cancel()) return;
         Log.Write(reason is null ? "celular: energia cancelada" : $"celular: energia cancelada ({reason})");
         Disarm();
@@ -133,6 +170,7 @@ internal sealed class PcController
                 Arm();
                 break;
             case PowerEventKind.Execute:
+                CloseNowPrompt();
                 Disarm();
                 PlanChanged();
                 Run(ev.Action);
@@ -317,7 +355,7 @@ internal sealed class PcController
             Log.Write("celular: atalho ignorado (fora da lista)");
             return;
         }
-        Log.Write($"celular: atalho aberto {name}");
+        Log.Write("celular: atalho aberto"); // Fase 16, D15: o nome não vai para o log
         try { Actions.OpenShortcut(Path.Combine(folder, file), name); }
         catch (Exception ex) { Log.Write($"ERRO celular: atalho: {ex.Message}"); }
     }

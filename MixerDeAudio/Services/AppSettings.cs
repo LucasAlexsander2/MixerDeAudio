@@ -45,8 +45,17 @@ public sealed record AppSettings
     /// <summary>Controle pelo celular ligado (Fase 6, D11); desligado por padrão.</summary>
     public bool CelularLigado { get; init; }
 
-    /// <summary>Código de 6 dígitos do pareamento; gerado na primeira vez que o recurso é ligado.</summary>
+    /// <summary>
+    /// Código de 6 dígitos do pareamento; gerado na primeira vez que o recurso é ligado. Em memória é sempre texto claro; no
+    /// arquivo (Fase 16, D14) vai protegido em <see cref="CodigoCelularProtegido"/>. Um <c>CodigoCelular</c> em texto claro no
+    /// arquivo (o que os roteiros gravam) ainda é lido e migrado na próxima gravação.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? CodigoCelular { get; init; }
+
+    /// <summary>O código protegido com a DPAPI do usuário (base64); só existe no arquivo (Fase 16, D14), nunca em memória.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? CodigoCelularProtegido { get; init; }
 
     /// <summary>Celulares pareados: só o SHA-256 da chave fica aqui, nunca a chave. No máximo <see cref="MaxPhones"/>.</summary>
     public List<PairedPhone> ChavesCelular { get; init; } = new();
@@ -72,9 +81,16 @@ public sealed record AppSettings
     public static AppSettings Parse(string? json) => Parse(json, out _);
 
     /// <summary><paramref name="invalid"/> é verdadeiro quando havia texto, mas não deu para aproveitar (para o log, D2).</summary>
-    public static AppSettings Parse(string? json, out bool invalid)
+    public static AppSettings Parse(string? json, out bool invalid) => Parse(json, out invalid, out _);
+
+    /// <summary>
+    /// <paramref name="plainCode"/> é verdadeiro quando o arquivo traz o código em texto claro (para migrar: a próxima
+    /// gravação já o protege, Fase 16, D14).
+    /// </summary>
+    public static AppSettings Parse(string? json, out bool invalid, out bool plainCode)
     {
         invalid = false;
+        plainCode = false;
         if (string.IsNullOrWhiteSpace(json)) return Default;
         try
         {
@@ -83,6 +99,12 @@ public sealed record AppSettings
             {
                 invalid = true;
                 return Default;
+            }
+            plainCode = !string.IsNullOrEmpty(read.CodigoCelular) && string.IsNullOrEmpty(read.CodigoCelularProtegido);
+            if (!string.IsNullOrEmpty(read.CodigoCelularProtegido))
+            {
+                // Protegido vale mais que o texto claro; se não abrir (outro usuário ou arquivo copiado), o recurso gera um código novo
+                read = read with { CodigoCelular = CodeProtector.Unprotect(read.CodigoCelularProtegido) };
             }
             return read.Normalized();
         }
@@ -93,7 +115,14 @@ public sealed record AppSettings
         }
     }
 
-    public string Serialize() => JsonSerializer.Serialize(Normalized(), AppSettingsContext.Default.AppSettings);
+    /// <summary>O JSON do arquivo: o código vai protegido (DPAPI) em <c>CodigoCelularProtegido</c>; se a DPAPI falhar, em texto claro.</summary>
+    public string Serialize()
+    {
+        var n = Normalized();
+        if (n.CodigoCelular is not null && CodeProtector.Protect(n.CodigoCelular) is { } protectedCode)
+            n = n with { CodigoCelular = null, CodigoCelularProtegido = protectedCode };
+        return JsonSerializer.Serialize(n, AppSettingsContext.Default.AppSettings);
+    }
 
     /// <summary>Tema válido, favoritos sem vazios nem repetidos e no máximo 3, nomes só dos favoritos.</summary>
     public AppSettings Normalized()
@@ -115,7 +144,7 @@ public sealed record AppSettings
         return new AppSettings
         {
             Versao = CurrentVersion, Favoritos = favs, NomesFavoritos = names, Tema = AppTheme.Normalize(Tema),
-            CelularLigado = CelularLigado, CodigoCelular = NormalizeCode(CodigoCelular), ChavesCelular = NormalizePhones(ChavesCelular),
+            CelularLigado = CelularLigado, CodigoCelular = NormalizeCode(CodigoCelular), CodigoCelularProtegido = null, ChavesCelular = NormalizePhones(ChavesCelular),
             FerramentasCelular = RemoteTools.Normalize(FerramentasCelular),
             PortaCelular = RemoteRules.NormalizePort(PortaCelular),
             AtualizarAuto = AtualizarAuto, UltimaVersaoVista = NormalizeVersion(UltimaVersaoVista), BalaoVersao = NormalizeVersion(BalaoVersao),

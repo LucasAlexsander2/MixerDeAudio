@@ -43,7 +43,9 @@ internal sealed class RemoteServer : IDisposable
     private readonly PairingLimiter _limiter = new();
     private readonly PairingWindow _window = new(); // Fase 16, D3
     private readonly IpRequestCounter _openByIp = new(); // Fase 16, D7
-    private readonly AllowedNetworks? _networks; // Fase 16, D5 (nulo com --celular-local: só escuta o loopback)
+    // Fase 16, D5 e 16b: criado só quando o servidor liga e descartado no Stop (desligado, o recurso não lê redes nem assina
+    // eventos). Nulo também com --celular-local: só escuta o loopback.
+    private volatile AllowedNetworks? _networks;
     private readonly Func<string, Task<bool>>? _confirm; // Fase 16, D4: pergunta no PC (thread da tela); a resposta volta por Task
     private int _pairing; // 1 enquanto um pareamento espera a confirmação no PC (D4)
     private long _lastHostLog;
@@ -69,11 +71,18 @@ internal sealed class RemoteServer : IDisposable
         _ui = ui;
         _localOnly = localOnly;
         _confirm = confirmPairing;
-        if (!localOnly)
-        {
-            _networks = new AllowedNetworks();
-            _networks.Changed += () => NetworksChanged?.Invoke();
-        }
+    }
+
+    private void OnNetworksChanged() => NetworksChanged?.Invoke();
+
+    /// <summary>Descarta a leitura de redes (solta o evento do Windows). Chamado no <c>Stop</c>.</summary>
+    private void DisposeNetworks()
+    {
+        var networks = _networks;
+        _networks = null;
+        if (networks is null) return;
+        networks.Changed -= OnNetworksChanged;
+        networks.Dispose();
     }
 
     /// <summary>Os IPs permitidos mudaram (rede nova, categoria mudou). Thread qualquer.</summary>
@@ -83,10 +92,11 @@ internal sealed class RemoteServer : IDisposable
     public event Action? PairingChanged;
 
     /// <summary>IPs do PC por onde o celular pode chegar (D5); com <c>--celular-local</c>, só o loopback.</summary>
-    public IReadOnlyList<IPAddress> AllowedAddresses => _networks?.Addresses ?? new[] { IPAddress.Loopback };
+    public IReadOnlyList<IPAddress> AllowedAddresses =>
+        _localOnly ? new[] { IPAddress.Loopback } : _networks?.Addresses ?? Array.Empty<IPAddress>();
 
-    /// <summary>Sem rede permitida (Pública ou sem rede): o celular fica desligado (D5).</summary>
-    public bool NoAllowedNetwork => _networks is not null && _networks.None;
+    /// <summary>Sem rede permitida (Pública ou sem rede): o celular fica desligado (D5). Falso com o servidor parado.</summary>
+    public bool NoAllowedNetwork => _networks is { } networks && networks.None;
 
     /// <summary>O pareamento está fechado pelo bloqueio global até as Configurações serem abertas de novo (D2).</summary>
     public bool PairingLocked => _limiter.GlobalLocked;
@@ -97,6 +107,7 @@ internal sealed class RemoteServer : IDisposable
         _window.Open();
         _limiter.ReopenGlobal();
         _networks?.Refresh();
+        PurgeExpired(); // Fase 16, D11: a validade também é lida ao abrir as Configurações
     }
 
     /// <summary>A seção sumiu: o pareamento ainda vale por 2 min (D3).</summary>
@@ -114,6 +125,15 @@ internal sealed class RemoteServer : IDisposable
 
     /// <summary>A quantidade de celulares conectados mudou (thread qualquer).</summary>
     public event Action? ConnectionsChanged;
+
+    /// <summary>Um celular novo foi pareado, com o nome (Fase 16, D10). Thread qualquer.</summary>
+    public event Action<string>? PhonePaired;
+
+    /// <summary>Um celular conectou, com o nome (Fase 16, D10). Thread qualquer.</summary>
+    public event Action<string>? PhoneConnected;
+
+    /// <summary>A tela do PC começou (<c>true</c>) ou parou (<c>false</c>) de ser transmitida (Fase 16, D10). Thread qualquer.</summary>
+    public event Action<bool>? ScreenSharingChanged;
 
     /// <summary>O servidor terminou de ligar (ou desistiu) depois de esperar pela porta (D12). Thread da tela.</summary>
     public event Action? StateChanged;
@@ -166,6 +186,12 @@ internal sealed class RemoteServer : IDisposable
         {
             listener.Dispose();
             return false; // porta ocupada
+        }
+        if (!_localOnly && _networks is null)
+        {
+            var networks = new AllowedNetworks();
+            networks.Changed += OnNetworksChanged;
+            _networks = networks;
         }
         _listener = listener;
         Port = port;
@@ -228,6 +254,7 @@ internal sealed class RemoteServer : IDisposable
             CloseAllSessions();
             _cts?.Dispose();
             _cts = null;
+            DisposeNetworks();
             if (listener is not null) Log.Write("celular: servidor desligado");
         }
         finally
@@ -238,8 +265,8 @@ internal sealed class RemoteServer : IDisposable
 
     public void Dispose()
     {
-        if (IsRunning) Stop();
-        _networks?.Dispose();
+        if (IsRunning || _starting) Stop();
+        DisposeNetworks();
     }
 
     /// <summary>
@@ -667,6 +694,15 @@ internal sealed class RemoteServer : IDisposable
             return;
         }
 
+        // Fase 16, D11: o limite de celulares é conferido antes de perguntar no PC (os expirados já não contam)
+        if (PhoneListRules.LimitReached(_settings.Current.ChavesCelular, DateTime.UtcNow))
+        {
+            _limiter.RegisterSuccess(ip);
+            Log.Write("celular: pareamento recusado (limite de celulares)");
+            await Reply(403, "{\"ok\":false,\"motivo\":\"limite\"}").ConfigureAwait(false);
+            return;
+        }
+
         // D4: um pedido por vez
         if (Interlocked.CompareExchange(ref _pairing, 1, 0) != 0)
         {
@@ -709,13 +745,14 @@ internal sealed class RemoteServer : IDisposable
                 // D4: depois de cada pareamento aceito o código muda (no modo de teste não, os roteiros pareiam várias vezes)
                 _settings.Update(s => s with
                 {
-                    ChavesCelular = new List<PairedPhone>(s.ChavesCelular) { phone },
+                    ChavesCelular = new List<PairedPhone>(PhoneListRules.RemoveExpired(s.ChavesCelular, DateTime.UtcNow, out _)) { phone },
                     CodigoCelular = _localOnly ? s.CodigoCelular : RemoteRules.NewCode(),
                 });
                 return true;
             }).ConfigureAwait(false);
             Log.Write($"celular: pareado ({name})");
             PairingChanged?.Invoke();
+            PhonePaired?.Invoke(name);
             var cookie = $"Set-Cookie: {RemoteRules.CookieName}={key}; Max-Age=31536000; SameSite=Strict; Path=/; HttpOnly";
             await Reply(200, "{\"ok\":true}", new[] { cookie }).ConfigureAwait(false);
         }
@@ -759,8 +796,49 @@ internal sealed class RemoteServer : IDisposable
         if (string.IsNullOrEmpty(cookie)) return null;
         var hash = RemoteRules.HashKey(cookie);
         foreach (var p in _settings.Current.ChavesCelular)
-            if (string.Equals(p.Hash, hash, StringComparison.Ordinal)) return p;
+        {
+            if (!string.Equals(p.Hash, hash, StringComparison.Ordinal)) continue;
+            // Fase 16, D11: chave sem uso há mais de 30 dias expira
+            if (PhoneListRules.IsExpired(p.UltimoUso, DateTime.UtcNow))
+            {
+                _ui.TryEnqueue(PurgeExpired);
+                return null;
+            }
+            return p;
+        }
         return null;
+    }
+
+    /// <summary>Tira da configuração os celulares sem uso há mais de 30 dias (menos o que está conectado agora). Thread da tela.</summary>
+    public void PurgeExpired()
+    {
+        try
+        {
+            var now = DateTime.UtcNow;
+            string? connected;
+            lock (_gate) connected = _sessions.Count > 0 ? _sessions[0].KeyHash : null;
+            bool Drop(PairedPhone p) => PhoneListRules.IsExpired(p.UltimoUso, now) && !string.Equals(p.Hash, connected, StringComparison.Ordinal);
+            var expired = _settings.Current.ChavesCelular.Count(Drop);
+            if (expired == 0) return;
+            _settings.Update(s => s with { ChavesCelular = s.ChavesCelular.Where(p => !Drop(p)).ToList() });
+            Log.Write($"celular: {expired} celular(es) expirado(s) (30 dias sem uso)");
+            PairingChanged?.Invoke();
+        }
+        catch (Exception ex)
+        {
+            Log.Write($"ERRO celular: {ex.Message}");
+        }
+    }
+
+    /// <summary>"Esquecer" (Fase 16, D11): tira a chave da configuração e fecha na hora a sessão dela (4000). Thread da tela.</summary>
+    public void Forget(string hash)
+    {
+        _settings.Update(s => s with { ChavesCelular = PhoneListRules.Forget(s.ChavesCelular, hash) });
+        RemoteSession[] mine;
+        lock (_gate) mine = _sessions.Where(x => string.Equals(x.KeyHash, hash, StringComparison.Ordinal)).ToArray();
+        foreach (var s in mine) s.Finish(RemoteProtocol.BuildDisconnected(), 4000, "desconectado");
+        Log.Write("celular: celular esquecido");
+        PairingChanged?.Invoke();
     }
 
     // ---- GET /icone/<id> ----
@@ -885,6 +963,7 @@ internal sealed class RemoteServer : IDisposable
             });
             capture = new ScreenCapture();
             Log.Write("celular: tela compartilhada");
+            ScreenSharingChanged?.Invoke(true);
             using var loopCts = CancellationTokenSource.CreateLinkedTokenSource(serverCt);
             var receive = ScreenReceiveLoopAsync(socket, channel, loopCts);
             var send = ScreenSendLoopAsync(socket, capture, channel, phone.Hash, loopCts.Token);
@@ -898,6 +977,7 @@ internal sealed class RemoteServer : IDisposable
         {
             if (capture is not null)
             {
+                ScreenSharingChanged?.Invoke(false);
                 var n = capture.Sent;
                 var ms = n > 0 ? capture.TotalMs / n : 0;
                 Log.Write($"celular: tela encerrada ({n} quadros, {capture.Skipped} iguais, {ms:0} ms por quadro, {channel.LastQuality})");
@@ -1053,7 +1133,13 @@ internal sealed class RemoteServer : IDisposable
         }
         Log.Write($"celular: arquivo recebido ({result.Bytes} bytes)");
         var name = result.Name ?? "";
-        await OnUi(() => { App.Pc.Balloon($"Arquivo recebido: {name}", "Arquivo recebido"); return true; }).ConfigureAwait(false);
+        var renamed = result.Renamed;
+        await OnUi(() =>
+        {
+            // Fase 16, D12: executável ou script chega com .txt no fim, e o balão diz por quê
+            App.Pc.Balloon(renamed ? $"Arquivo recebido: {name} (renomeado por segurança)" : $"Arquivo recebido: {name}", "Arquivo recebido");
+            return true;
+        }).ConfigureAwait(false);
         using var ms = new MemoryStream();
         using (var w = new Utf8JsonWriter(ms, new JsonWriterOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }))
         {
@@ -1166,6 +1252,7 @@ internal sealed class RemoteServer : IDisposable
             total = ConnectionCount;
             Log.Write($"celular conectado ({total} no total)");
             ConnectionsChanged?.Invoke();
+            PhoneConnected?.Invoke(string.IsNullOrWhiteSpace(phone.Nome) ? "celular" : phone.Nome);
             _ui.TryEnqueue(() => TouchPhone(phone.Hash));
             await session.RunAsync().ConfigureAwait(false);
         }

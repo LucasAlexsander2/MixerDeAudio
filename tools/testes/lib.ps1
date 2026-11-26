@@ -463,6 +463,18 @@ function LigarCelularTeste([string]$codigo = '123456', [string[]]$grupos = @()) 
   WaitFor { $script:celularPorta = CelularPorta; $null -ne $script:celularPorta } 5 | Out-Null
   $script:celularPorta
 }
+# Fase 16, D14: o app grava o codigo do celular protegido (DPAPI do usuario) em CodigoCelularProtegido. Devolve o codigo em texto claro,
+# seja do config.json antigo (CodigoCelular) ou do protegido; $null se nao houver.
+function CodigoDoConfig($cfg) {
+  if ($cfg.CodigoCelular) { return "$($cfg.CodigoCelular)" }
+  if (-not $cfg.CodigoCelularProtegido) { return $null }
+  Add-Type -AssemblyName System.Security
+  try {
+    $bytes = [Security.Cryptography.ProtectedData]::Unprotect([Convert]::FromBase64String($cfg.CodigoCelularProtegido),
+      [Text.Encoding]::UTF8.GetBytes('MixerDeAudio.CodigoCelular'), [Security.Cryptography.DataProtectionScope]::CurrentUser)
+    [Text.Encoding]::UTF8.GetString($bytes)
+  } catch { $null }
+}
 # Porta lida da última linha "celular: servidor ligado em <ip>:<porta>" do log.
 function CelularPorta {
   $m = @(LogLines | ForEach-Object { [regex]::Match($_, 'celular: servidor ligado em [\d.]+:(\d+)') } | Where-Object { $_.Success })

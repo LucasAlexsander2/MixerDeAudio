@@ -35,6 +35,7 @@ public partial class App : Application
     private Updater? _updater;
     private UpdateController? _updates;
     private DispatcherQueueTimer? _updateTimer;
+    private bool _phoneOn, _screenOn; // Fase 16, D10: estado do ícone da bandeja
 
     /// <summary>Fila da thread da tela, para receber a ativação redirecionada (que chega em outra thread).</summary>
     public static DispatcherQueue? UiQueue { get; private set; }
@@ -103,6 +104,16 @@ public partial class App : Application
 
         // Servidor do celular (Fase 6, D10 e D12): desligado por padrão; liga na partida e quando o interruptor muda
         _remote = new RemoteServer(_hub, Settings, UiQueue!, commandLine.CelularLocal, AskPairing);
+        // Fase 16, D10: avisos no PC (balão e ícone da bandeja) de celular novo, celular conectado e tela transmitida
+        _remote.PhonePaired += name => RunOnUi(() => _tray?.ShowBalloon("Mixer de Áudio", $"Novo celular pareado: {name}"));
+        _remote.PhoneConnected += name => RunOnUi(() => _tray?.ShowBalloon("Mixer de Áudio", $"Celular conectado: {name}"));
+        _remote.ConnectionsChanged += () => RunOnUi(() => { _phoneOn = _remote?.ConnectionCount > 0; UpdateTrayState(); });
+        _remote.ScreenSharingChanged += on => RunOnUi(() =>
+        {
+            _screenOn = on;
+            if (on) _tray?.ShowBalloon("Mixer de Áudio", "A tela do PC está sendo vista no celular");
+            UpdateTrayState();
+        });
         Settings.Changed += OnSettingsChanged;
         _remote.Apply();
 
@@ -176,6 +187,18 @@ public partial class App : Application
             "Um celular com o código certo quer parear. Se não foi você, recuse.", "Permitir", "Recusar", 60, resultOnTimeout: false, hidden: _hiddenTest);
     }
 
+    /// <summary>
+    /// Fase 16, D13: a janelinha do "agora" da energia ("Desligando em 10 s" e Cancelar), por cima de tudo e sem roubar o foco.
+    /// <c>true</c> = o usuário cancelou. Também aparece com <c>--teste-pc</c> (o PC de teste só registra no log).
+    /// </summary>
+    private Task<bool> AskPowerNow(PowerAction action, int seconds, System.Threading.CancellationToken close) =>
+        Flyout.PcPromptWindow.AskAsync("Mixer de Áudio", PowerRules.NowPromptText(action, seconds), "Cancelar", "", seconds,
+            resultOnTimeout: false, countdownText: left => PowerRules.NowPromptText(action, left), hidden: _hiddenTest, close: close);
+
+    /// <summary>Fase 16, D10: a tela transmitida vale mais que o celular conectado. Thread da tela.</summary>
+    private void UpdateTrayState() =>
+        _tray?.SetState(_screenOn ? TrayState.ScreenShared : _phoneOn ? TrayState.PhoneConnected : TrayState.Normal);
+
     private void OnSettingsChanged()
     {
         _remote?.Apply();
@@ -184,7 +207,7 @@ public partial class App : Application
 
     private PcController CreatePc()
     {
-        var pc = new PcController(UiQueue!, _testPc, (title, text) => _tray?.ShowBalloon(title, text));
+        var pc = new PcController(UiQueue!, _testPc, (title, text) => _tray?.ShowBalloon(title, text), AskPowerNow);
         pc.PowerPlanChanged += plan => _tray?.SetCancelItem(plan is null ? null : PowerRules.CancelText(plan.Action), () => RunOnUi(() => _pc?.CancelPower()));
         pc.OnSettingsChanged(Settings.Current.FerramentasCelular, Settings.Current.CelularLigado);
         return pc;

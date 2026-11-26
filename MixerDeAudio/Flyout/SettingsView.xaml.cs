@@ -27,6 +27,11 @@ public sealed partial class SettingsView : UserControl
 
     private void OnDisconnectClick(object sender, RoutedEventArgs e) => Model.Disconnect();
 
+    private void OnForgetPhoneClick(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is string hash) Model.ForgetPhone(hash);
+    }
+
     private void OnShortcutsFolderClick(object sender, RoutedEventArgs e) => Model.OpenShortcutsFolder();
 
     private void OnUpdateCheckClick(object sender, RoutedEventArgs e) => Model.CheckNow();

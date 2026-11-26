@@ -111,7 +111,8 @@ try {
   AssertModoTestePc
   # a) desligar agora
   $rc = CelularFerramenta $porta $pa.Chave '{"t":"energia","acao":"desligar","seg":0}'
-  $okA = WaitFor { @(LogTestePc '^energia desligar$').Count -ge 1 } 3
+  # Fase 16, D13: o "agora" espera 10 s (janelinha com Cancelar no PC); esta parte so confere que executa
+  $okA = WaitFor { @(LogTestePc '^energia desligar$').Count -ge 1 } 15
   $nA = @(LogTestePc '^energia desligar$').Count
   # b) suspender em 60 s e cancelar
   $tb = EpochMs

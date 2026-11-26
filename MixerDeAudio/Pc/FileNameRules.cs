@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Text;
 
@@ -22,6 +24,12 @@ public static class FileNameRules
         "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
     };
 
+    /// <summary>Extensões de executáveis e scripts (Fase 16, P4): recebidas com <c>.txt</c> no fim, para nada abrir com dois cliques.</summary>
+    private static readonly HashSet<string> ExecutableExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".exe", ".msi", ".bat", ".cmd", ".ps1", ".vbs", ".js", ".lnk", ".url", ".scr", ".dll", ".com", ".pif", ".hta", ".jar", ".reg",
+    };
+
     public static long Limit(bool testMode) => testMode ? TestMaxBytes : MaxBytes;
 
     /// <summary>Cabe no disco: o espaço livre tem que ser pelo menos o tamanho + 1 GB.</summary>
@@ -38,10 +46,12 @@ public static class FileNameRules
         var slash = Math.Max(s.LastIndexOf('/'), s.LastIndexOf((char)92));
         if (slash >= 0) s = s.Substring(slash + 1);
         var sb = new StringBuilder(s.Length);
-        foreach (var c in s)
+        foreach (var rune in s.EnumerateRunes())
         {
-            if (c < 32 || c is '<' or '>' or ':' or '"' or '|' or '?' or '*' or '/' or (char)92) continue;
-            sb.Append(c);
+            // Fase 16, D12: caracteres de formatação Unicode (categoria Cf, como U+202E) enganam o nome mostrado
+            if (Rune.GetUnicodeCategory(rune) == UnicodeCategory.Format) continue;
+            if (rune.Value is < 32 or '<' or '>' or ':' or '"' or '|' or '?' or '*' or '/' or 92) continue;
+            sb.Append(rune.ToString());
         }
         var name = sb.ToString().Trim().TrimEnd('.', ' ').TrimStart(' ');
         if (name.Length == 0) return DefaultName;
@@ -61,6 +71,20 @@ public static class FileNameRules
             if (name.Length == 0) name = DefaultName;
         }
         return name;
+    }
+
+    /// <summary>A extensão do nome está na lista de executáveis e scripts (P4)?</summary>
+    public static bool IsExecutable(string name) => ExecutableExtensions.Contains(Path.GetExtension(name));
+
+    /// <summary>
+    /// Nome para gravar o arquivo recebido (Fase 16, D12): <see cref="Clean"/> e, se a extensão for de executável ou script,
+    /// <c>.txt</c> no fim (<c>setup.exe</c> vira <c>setup.exe.txt</c>). <paramref name="renamed"/> avisa o balão.
+    /// </summary>
+    public static string ForReceive(string? raw, out bool renamed)
+    {
+        var name = Clean(raw);
+        renamed = IsExecutable(name);
+        return renamed ? name + ".txt" : name;
     }
 
     /// <summary>O nome se estiver livre; senão "nome (2).ext", "nome (3).ext"... (<paramref name="exists"/> diz se o nome já existe).</summary>

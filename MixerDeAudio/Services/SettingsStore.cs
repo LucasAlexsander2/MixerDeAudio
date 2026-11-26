@@ -29,8 +29,14 @@ public sealed class SettingsStore
             {
                 store.ExistedOnLoad = true;
                 var text = File.ReadAllText(AppPaths.ConfigFile, Encoding.UTF8);
-                store._current = AppSettings.Parse(text, out var invalid);
+                store._current = AppSettings.Parse(text, out var invalid, out var plainCode);
                 if (invalid) Log.Write("ERRO config invalida, usando o padrao");
+                else if (plainCode)
+                {
+                    // Fase 16, D14: o código estava em texto claro; regrava já protegido
+                    store.Save();
+                    Log.Write("config: codigo do celular protegido (migrado)");
+                }
             }
         }
         catch (Exception ex)

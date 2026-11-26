@@ -23,6 +23,12 @@ namespace MixerDeAudio.ViewModels;
 /// <summary>Um item do cartão "Novidades" (Fase 11, D8): o ícone (glifo da Segoe Fluent), o título e o texto.</summary>
 public sealed record NoteItemView(string Glyph, string Title, string Text);
 
+/// <summary>Um celular pareado na lista das Configurações (Fase 16, D11): nome e "último uso" em texto curto.</summary>
+public sealed record PhoneItemView(string Hash, string Name, string LastUse)
+{
+    public string Label => $"{Name} · último uso {LastUse}";
+}
+
 /// <summary>Uma saída na lista de favoritas da página de configurações (D9).</summary>
 public sealed class FavoriteItemViewModel : ObservableObject
 {
@@ -113,6 +119,9 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
     }
 
     public ObservableCollection<FavoriteItemViewModel> Favorites { get; } = new();
+
+    /// <summary>Celulares pareados (Fase 16, D11), do mais recente para o mais antigo.</summary>
+    public ObservableCollection<PhoneItemView> Phones { get; } = new();
 
     // ---- Favoritas ----
 
@@ -328,6 +337,7 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
         }
         RemoteCode = settings.CodigoCelular ?? "";
         UpdateCount();
+        RebuildPhones();
         if (!_remote.IsRunning || string.IsNullOrEmpty(settings.CodigoCelular))
         {
             RemoteAddress = _remote.IsStarting
@@ -392,6 +402,26 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
     }
 
     public Visibility RemoteDisconnectVisibility { get => _remoteDisconnectVisibility; private set => SetProperty(ref _remoteDisconnectVisibility, value); }
+
+    private void RebuildPhones()
+    {
+        var now = DateTime.UtcNow;
+        Phones.Clear();
+        foreach (var p in _store.Current.ChavesCelular.OrderByDescending(x => x.UltimoUso))
+            Phones.Add(new PhoneItemView(p.Hash, string.IsNullOrWhiteSpace(p.Nome) ? "Celular" : p.Nome, PhoneListRules.LastUseText(p.UltimoUso, now)));
+        OnPropertyChanged(nameof(PhonesVisibility));
+        OnPropertyChanged(nameof(PhonesEmptyVisibility));
+    }
+
+    public Visibility PhonesVisibility => Phones.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility PhonesEmptyVisibility => Phones.Count > 0 ? Visibility.Collapsed : Visibility.Visible;
+
+    /// <summary>"Esquecer" (Fase 16, D11): tira a chave do celular e fecha a sessão dele na hora.</summary>
+    public void ForgetPhone(string hash)
+    {
+        _remote?.Forget(hash);
+        RefreshRemote();
+    }
 
     /// <summary>"Desconectar": o celular vê "Desconectado"; a chave continua pareada.</summary>
     public void Disconnect() => _remote?.DisconnectAll();

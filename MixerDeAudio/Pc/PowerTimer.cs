@@ -39,6 +39,25 @@ public static class PowerRules
         _ => "bloquear",
     };
 
+    /// <summary>Espera do "agora" (Fase 16, D13): <c>seg: 0</c> vira 10 s, com a janelinha e o botão Cancelar no PC.</summary>
+    public const int NowSeconds = 10;
+
+    /// <summary><c>seg: 0</c> (agora) vira <see cref="NowSeconds"/>; os outros valores ficam como estão.</summary>
+    public static int EffectiveSeconds(int seconds) => seconds == 0 ? NowSeconds : seconds;
+
+    /// <summary>Texto da janelinha do "agora": "Desligando em 7 s".</summary>
+    public static string NowPromptText(PowerAction action, int secondsLeft)
+    {
+        var verbo = action switch
+        {
+            PowerAction.Shutdown => "Desligando",
+            PowerAction.Restart => "Reiniciando",
+            PowerAction.Suspend => "Suspendendo",
+            _ => "Bloqueando",
+        };
+        return $"{verbo} em {secondsLeft} s";
+    }
+
     /// <summary>0 (agora) ou 5 a 86400 segundos.</summary>
     public static bool IsValidSeconds(int seconds) => seconds == 0 || (seconds >= MinSeconds && seconds <= MaxSeconds);
 

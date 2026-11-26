@@ -3,6 +3,7 @@
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ImplicitUsings>enable</ImplicitUsings>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
@@ -42,6 +43,8 @@
     <Compile Include="..\MixerDeAudio\Services\UpdateController.cs" Link="Services\UpdateController.cs" />
     <Compile Include="..\MixerDeAudio\Services\InnoMigration.cs" Link="Services\InnoMigration.cs" />
     <Compile Include="..\MixerDeAudio\Remote\RemoteRules.cs" Link="Remote\RemoteRules.cs" />
+    <Compile Include="..\MixerDeAudio\Remote\PhoneListRules.cs" Link="Remote\PhoneListRules.cs" />
+    <Compile Include="..\MixerDeAudio\Services\CodeProtector.cs" Link="Services\CodeProtector.cs" />
     <Compile Include="..\MixerDeAudio\Remote\RemoteProtocol.cs" Link="Remote\RemoteProtocol.cs" />
     <Compile Include="..\MixerDeAudio\Remote\RemoteTools.cs" Link="Remote\RemoteTools.cs" />
     <Compile Include="..\MixerDeAudio\Remote\WebAssets.cs" Link="Remote\WebAssets.cs" />

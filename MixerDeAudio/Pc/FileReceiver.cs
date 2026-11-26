@@ -19,7 +19,7 @@ internal sealed partial class FileReceiver
     private const int BlockSize = 64 * 1024;
 
     /// <summary>Status HTTP a responder (0 = só fechar, a conexão caiu), nome gravado e bytes recebidos.</summary>
-    public readonly record struct Result(int Status, string? Name, long Bytes);
+    public readonly record struct Result(int Status, string? Name, long Bytes, bool Renamed = false);
 
     private readonly bool _testMode;
     private int _busy;
@@ -47,14 +47,16 @@ internal sealed partial class FileReceiver
             if (!DiskSpace.TryGet(Path.GetPathRoot(Path.GetFullPath(folder)), out var free, out _)) free = long.MaxValue; // sem resposta: não barra
             if (!FileNameRules.HasRoom(free, length)) return new Result(507, null, 0);
 
-            var name = FileNameRules.Unique(FileNameRules.Clean(rawName), n => File.Exists(Path.Combine(folder, n)));
+            // Fase 16, D12: o nome livre confere também o .parcial; executáveis ganham .txt
+            var cleaned = FileNameRules.ForReceive(rawName, out var renamed);
+            var name = FileNameRules.Unique(cleaned, n => NameTaken(folder, n));
             partial = Path.Combine(folder, name + FileNameRules.PartialSuffix);
             var buffer = ArrayPool<byte>.Shared.Rent(BlockSize);
             try
             {
                 using var idle = CancellationTokenSource.CreateLinkedTokenSource(serverCt);
                 long received = 0;
-                using (var file = new FileStream(partial, FileMode.Create, FileAccess.Write, FileShare.None, BlockSize, FileOptions.Asynchronous))
+                using (var file = new FileStream(partial, FileMode.CreateNew, FileAccess.Write, FileShare.None, BlockSize, FileOptions.Asynchronous))
                 {
                     var have = (int)Math.Min(prefetched.Length, length);
                     if (have > 0)
@@ -80,7 +82,7 @@ internal sealed partial class FileReceiver
                 partial = null;
                 try { File.WriteAllText(final + ":Zone.Identifier", "[ZoneTransfer]\r\nZoneId=3\r\n"); }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException) { Log.Write("ERRO celular: arquivo: Zone.Identifier nao gravado"); }
-                return new Result(200, name, received);
+                return new Result(200, name, received, renamed);
             }
             finally
             {
@@ -101,6 +103,13 @@ internal sealed partial class FileReceiver
             }
             Volatile.Write(ref _busy, 0);
         }
+    }
+
+    /// <summary>O nome já existe na pasta, como arquivo pronto ou como <c>.parcial</c> de outro envio (Fase 16, D12).</summary>
+    private static bool NameTaken(string folder, string name)
+    {
+        var path = Path.Combine(folder, name);
+        return File.Exists(path) || File.Exists(path + FileNameRules.PartialSuffix);
     }
 
     // ---- Pasta Downloads (D26) ----
