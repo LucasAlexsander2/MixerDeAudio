@@ -1,4 +1,5 @@
 // Entrada do novo front (/novo): liga a pilha de telas, a conexão com o PC e as telas provisórias (D10 a D14, D19).
+import { lerMao } from './preferencias.js';
 import { criarPilha } from './pilha.js';
 import { iniciarConexao, enviar, parear, reconectarAgora } from './conexao.js';
 import { aoMudar, obterEstado, limparEstado } from './estado.js';
@@ -9,6 +10,9 @@ import { criarTelaAcesso } from './telas/acesso.js';
 import { criarTelaInicio, AREAS } from './telas/inicio.js';
 import { criarTelaProvisoria } from './telas/provisoria.js';
 import { criarTelaGaleria } from './telas/galeria.js';
+import { criarTelaOpcoes } from './telas/opcoes.js';
+
+lerMao(); // aplica a mão salva (classe mao-esquerda) antes de desenhar
 
 const pilhaEl = document.getElementById('pilha');
 const camadas = document.getElementById('camadas');
@@ -39,6 +43,7 @@ const aviso = criarAviso({
 // as chamadas a `pilha` só acontecem depois de ela existir
 const inicio = criarTelaInicio({
   aoAbrirArea: (nome) => pilha.abrir(nome),
+  aoAbrirOpcoes: () => pilha.abrir('opcoes'),
   aoDesconectar: () => aviso.abrir(),
 });
 
@@ -49,13 +54,15 @@ const pilha = criarPilha({
   aoAbrir(nome, profundidade) {
     if (profundidade === 1 && !dicaJaVista()) {
       marcarDicaVista();
-      dica.mostrar('Arraste para a esquerda para voltar');
+      dica.mostrar('Arraste para o lado para voltar');
     }
   },
 });
 for (const a of AREAS) {
   pilha.registrar(a.nome, () => criarTelaProvisoria({ titulo: a.rotulo, icone: a.icone, aoVoltar: () => pilha.voltar() }));
 }
+
+pilha.registrar('opcoes', () => criarTelaOpcoes({ aoVoltar: () => pilha.voltar() }));
 
 // D26: /novo#galeria abre a Galeria dos componentes sem precisar do PC (sem conexão nem tela de acesso)
 const modoGaleria = location.hash === '#galeria';

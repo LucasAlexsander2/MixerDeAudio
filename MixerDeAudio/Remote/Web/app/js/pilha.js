@@ -1,4 +1,4 @@
-// Pilha de telas (D12, D13): telas registradas por nome, voltar pela seta, pelo gesto de arrastar para a esquerda
+// Pilha de telas (D12, D13): telas registradas por nome, voltar pela seta, pelo gesto de arrastar para os lados
 // e pelo histórico do navegador (voltar do Android, borda do Safari, "avançar").
 
 const DURACAO = 280;
@@ -11,6 +11,7 @@ export function criarPilha({ raiz, inicial, bloqueado = () => false, aoAbrir }) 
   const pilha = [{ nome: 'inicio', el: inicial }];
   raiz.append(inicial);
   let ignorarPop = 0;
+  let sentidoSaida = -1; // -1: sai para a esquerda (padrão); 1: sai para a direita (gesto arrastado para a direita)
 
   const reduzir = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const largura = () => raiz.clientWidth || window.innerWidth;
@@ -43,7 +44,8 @@ export function criarPilha({ raiz, inicial, bloqueado = () => false, aoAbrir }) 
     if (pilha.length < 2) return;
     const { el } = pilha.pop();
     atualizarInerte();
-    mover(el, -largura(), true);
+    mover(el, sentidoSaida * largura(), true);
+    sentidoSaida = -1;
     el.inert = true;
     setTimeout(() => el.remove(), reduzir() ? 0 : DURACAO + 40);
   }
@@ -98,6 +100,7 @@ export function criarPilha({ raiz, inicial, bloqueado = () => false, aoAbrir }) 
   raiz.addEventListener('pointerdown', (e) => {
     if (pilha.length < 2 || !e.isPrimary || bloqueado()) return;
     if (e.target.closest('input, textarea, select, [data-sem-gesto]')) return;
+    if (e.clientX < 24) return; // borda esquerda: fica com o voltar do Safari
     g = { x: e.clientX, y: e.clientY, t: e.timeStamp, ativo: false, id: e.pointerId };
   });
   raiz.addEventListener('pointermove', (e) => {
@@ -106,12 +109,12 @@ export function criarPilha({ raiz, inicial, bloqueado = () => false, aoAbrir }) 
     const dy = e.clientY - g.y;
     if (!g.ativo) {
       if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
-      if (dx < 0 && Math.abs(dx) > Math.abs(dy) * 1.2 && !bloqueado()) {
+      if (Math.abs(dx) > Math.abs(dy) * 1.2 && !bloqueado()) {
         g.ativo = true;
         try { raiz.setPointerCapture(e.pointerId); } catch { /* sem captura */ }
       } else { g = null; return; }
     }
-    mover(topo().el, Math.min(0, dx), false);
+    mover(topo().el, dx, false);
   });
   function fimGesto(e) {
     if (!g || e.pointerId !== g.id) return;
@@ -120,7 +123,10 @@ export function criarPilha({ raiz, inicial, bloqueado = () => false, aoAbrir }) 
     if (!s.ativo) return;
     const dx = e.clientX - s.x;
     const v = dx / Math.max(1, e.timeStamp - s.t);
-    if (e.type !== 'pointercancel' && (-dx > largura() * 0.3 || (v < -0.5 && -dx > 30))) api.voltar();
+    if (e.type !== 'pointercancel' && (Math.abs(dx) > largura() * 0.3 || (Math.abs(v) > 0.5 && Math.abs(dx) > 30))) {
+      sentidoSaida = dx > 0 ? 1 : -1;
+      api.voltar();
+    }
     else mover(topo().el, 0, true);
   }
   raiz.addEventListener('pointerup', fimGesto);

@@ -40,7 +40,7 @@ Bloco de 100 x 76 px com ícone e nome curto.
 
 ## faixa.js — `criarFaixa` e `criarGrade`
 Contêineres de blocos.
-- `criarFaixa({ linhas: 1 | 2, blocos: [HTMLElement] })`: rolagem para o lado, uma ou duas linhas. **Tem `data-sem-gesto`.**
+- `criarFaixa({ linhas: 1 | 2, larga, blocos: [HTMLElement] })`: rolagem para o lado, uma ou duas linhas. **Tem `data-sem-gesto`.** `larga: true` deixa cada bloco do tamanho de um bloco da grade de 2 (duas colunas visíveis por vez); é a faixa dos favoritos do Início (pedido do usuário em 26/11/2026).
 - `criarGrade({ colunas: 2 | 3, alta, blocos })`: grade; `alta` dá no mínimo 88 px aos blocos (nomes longos, atalhos).
 - Métodos (os dois): `definir([HTMLElement])` (troca tudo), `adicionar(HTMLElement)`, `limpar()`. Devolvem `{ el, definir, adicionar, limpar }`.
 - Uso: `const f = criarFaixa({ linhas: 2 }); f.definir(saidas.map((s) => criarBloco({...}).el));`
@@ -67,6 +67,7 @@ Cartão `--surface`, canto 16, espaço interno 12. Só contêiner.
 ## cartaoapp.js — `criarCartaoApp`
 Cartão de um app do Som: avatar (tocar = mudo), nome, música, botãozinho da saída, barra de volume, Anterior/Pausa/Próxima. Mudo deixa o cartão a 55%.
 - Opções: `{ nome, musica (texto ou null = sem música e some a linha de mídia), saida: { nome, icone }, volume, mudo, tocando, intervaloMs, esperaMs, aoVolume(valor, final), aoMudo(mudo), aoSaida(), aoAnterior(), aoPausa(tocando), aoProxima() }`.
+- Mão esquerda (A5): com `.mao-esquerda` no `<html>` a linha do nome espelha (saída à esquerda, avatar à direita), só por CSS. A saída fica na ponta da linha do nome; a música fica embaixo.
 - Eventos: `aoMudo` e `aoPausa` trazem o NOVO estado (o cartão já o mostra; se o PC discordar, chame `definirMudo` / `definirTocando`). `aoVolume` segue a regra da barra. `aoSaida()` costuma abrir uma folha.
 - Métodos: `definirNome(texto)`, `definirMusica(texto | null)`, `definirSaida(nome, icone)`, `definirVolume(valor)` (respeita a espera da barra), `definirMudo(bool)`, `definirTocando(bool)`. Devolve `{ el, barra, ... }`.
 - `data-sem-gesto`: a barra dentro dele tem; o resto do cartão não.
@@ -121,5 +122,9 @@ Só os gestos (D25), sem protocolo. Regras da página antiga (`16-controle.js`):
 - Eventos: `aoMover` (inteiros, uma vez por quadro), `aoClicar`, `aoRolar` (inteiro; positivo = dedos para baixo, o mesmo sinal da página antiga), `aoSegurar(botao, true)` ao começar e `(botao, false)` ao soltar, `aoVisibilidade` quando o painel deitado esconde ou aparece.
 - Métodos: `definirSensibilidade(n)`, `definirDeitado(bool)`, `deitado()`, `esconder()`, `mostrar()`, `destruir()`. Devolve `{ el, painel, bolha, ... }`.
 - Em pé: `el` ocupa o espaço do pai (flex 1, mínimo 280 px). **Deitado** (`definirDeitado(true)`): `el` cobre o pai, que precisa de `position: relative` e do tamanho da tela; o painel vira vidro (`--glass`) de 44% x 52%, arrasta pela alça do topo e esconde pela seta (vira a bolha no canto). Quem usa decide quando deitar (orientação do aparelho) e chama `definirDeitado`.
+- Mão esquerda (A5): com `.mao-esquerda` no `<html>`, a faixa de rolagem vai para a esquerda e, deitado, o painel e a bolha vão para baixo à esquerda (`safe-area-inset-left`), só por CSS.
 - **`data-sem-gesto`: sim.**
 - Uso: `const p = criarTouchpad({ aoMover: (dx, dy) => enviar({ t: 'mouse', dx, dy }), aoClicar: (b) => enviar({ t: 'clique', b }), aoRolar: (dy) => enviar({ t: 'rolar', dx: 0, dy }), aoSegurar: (b, on) => enviar({ t: 'botao', b, baixo: on }) });`
+
+## preferencias.js (A5)
+`lerMao()` devolve `'direita'` (padrão) ou `'esquerda'`; `definirMao(m)` grava no `localStorage` (com `try/catch`) e põe/tira a classe `mao-esquerda` no `<html>`; `aoMudarMao(fn)` chama `fn(mao)` a cada mudança e devolve a função que cancela. `app.js` aplica a preferência salva antes de desenhar. A tela `telas/opcoes.js` e a Galeria usam o grupo "Mão usada".

@@ -18,7 +18,7 @@ button:focus-visible,input:focus-visible,[tabindex]:focus-visible{outline:2px so
 /* telas da pilha */
 .tela{position:absolute;inset:0;display:flex;flex-direction:column;background:var(--bg);
   padding-left:max(var(--margem),env(safe-area-inset-left,0px));padding-right:max(var(--margem),env(safe-area-inset-right,0px));
-  padding-top:max(12px,env(safe-area-inset-top,0px));padding-bottom:max(12px,env(safe-area-inset-bottom,0px));
+  padding-top:calc(env(safe-area-inset-top,0px) + 12px);padding-bottom:max(12px,env(safe-area-inset-bottom,0px));
   overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;touch-action:pan-y;user-select:none;-webkit-user-select:none;will-change:transform}
 .tela>*{flex-shrink:0}
 .tela-titulo{margin:4px 0 14px;font-size:18px;font-weight:600}
@@ -39,6 +39,6 @@ button:focus-visible,input:focus-visible,[tabindex]:focus-visible{outline:2px so
 .acesso input::placeholder{color:var(--line)}
 .acesso .erro{color:var(--danger);min-height:1.45em}
 .acesso .botao{width:220px;flex:none}
-.faixa-conexao{position:absolute;left:0;right:0;top:0;z-index:70;padding:max(6px,env(safe-area-inset-top,0px)) 16px 6px;background:var(--surface-2);border-bottom:1px solid var(--line);color:var(--muted);text-align:center;font-size:12px;font-weight:600;pointer-events:none}
+.faixa-conexao{position:absolute;left:0;right:0;top:0;z-index:70;padding:calc(env(safe-area-inset-top,0px) + 6px) 16px 6px;background:var(--surface-2);border-bottom:1px solid var(--line);color:var(--muted);text-align:center;font-size:12px;font-weight:600;pointer-events:none}
 
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important;scroll-behavior:auto!important}}

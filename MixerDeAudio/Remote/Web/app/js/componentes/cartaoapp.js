@@ -35,7 +35,10 @@ export function criarCartaoApp({ nome, musica = null, saida, volume = 0, mudo = 
   const chipTxt = document.createElement('span');
   chipSaida.append(chipIc, chipTxt);
   chipSaida.addEventListener('click', () => { vibrar(); if (aoSaida) aoSaida(); });
-  textos.append(titulo, cancao, chipSaida);
+  const nomeLinha = document.createElement('div');
+  nomeLinha.className = 'nome-linha';
+  nomeLinha.append(titulo, chipSaida);
+  textos.append(nomeLinha, cancao);
 
   const l1 = document.createElement('div');
   l1.className = 'l1';

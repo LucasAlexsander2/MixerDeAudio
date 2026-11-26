@@ -14,6 +14,7 @@ import { criarMedidor } from '../componentes/medidor.js';
 import { criarAviso } from '../componentes/aviso.js';
 import { criarFolha } from '../componentes/folha.js';
 import { criarTouchpad } from '../componentes/touchpad.js';
+import { criarGrupoMao } from './opcoes.js';
 
 const SAIDAS = [
   { valor: 'fone', texto: 'Fones', icone: 'headphones' },
@@ -36,7 +37,7 @@ export function criarTelaGaleria({ container, toast, dica, aoVoltar }) {
   const topo = document.createElement('div');
   topo.className = 'galeria-topo';
   topo.append(cab.el, evento);
-  el.append(topo);
+  el.append(topo, criarGrupoMao().el);
 
   let n = 0;
   const log = (window.__galeriaLog = window.__galeriaLog || []);
@@ -88,6 +89,7 @@ export function criarTelaGaleria({ container, toast, dica, aoVoltar }) {
   const blocosEscolha = blocos(8, true);
   secao('Bloco: faixa de 1 linha (um é escolha, um tem ponto)', criarFaixa({ linhas: 1, blocos: blocosEscolha.map((b) => b.el) }).el);
   secao('Bloco: faixa de 2 linhas', criarFaixa({ linhas: 2, blocos: blocos(8, false).map((b) => b.el) }).el);
+  secao('Bloco: faixa larga (tamanho da grade de 2, arrasta para o lado; favoritos do Início)', criarFaixa({ larga: true, blocos: blocos(5, false).map((b) => b.el) }).el);
   secao('Bloco: grade de 2', criarGrade({ colunas: 2, blocos: blocos(4, false).map((b) => b.el) }).el);
   const bDesab = criarBloco({ nome: 'Desligado', icone: 'lock' });
   bDesab.habilitar(false);

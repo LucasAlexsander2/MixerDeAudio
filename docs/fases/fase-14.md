@@ -1,6 +1,6 @@
 # Fase 14 — Base do novo front (Controladora PC)
 
-Status: aprovada pelo usuário (25/11/2026), com as recomendações de P1 a P3.
+Status: concluída em 26/11/2026. A 1.3.0 foi publicada; os ajustes A1 a A5 vão na versão do fim da Fase 15 (decisão do usuário: publicar só no fim), e o reteste no iPhone (A2 e U1 a U5) fica junto com o da Fase 15.
 
 ## 1. Objetivo
 
@@ -188,9 +188,24 @@ Usa `BackupConfig` e `RestoreConfig`, reabre o app do usuário no fim e nunca de
 - Não conferido no PC: o pareamento pela tela do `/novo` contra o `/parear` real (o 14.4 cobre o servidor; o cookie é o mesmo de `/`) e os casos U1 a U5, que dependem do iPhone.
 - Entrega preparada: `Version` 1.3.0 no csproj e a entrada 1.3.0 nas Novidades (P3).
 
-(teste do usuário: a preencher)
+### Teste do usuário (iPhone, 26/11/2026) e ajustes
+
+- O voltar arrastando para a esquerda funcionou. O ícone foi aprovado.
+- **A1, pedido:** voltar também arrastando para a **direita**. Nos dois sentidos valem as regras da D13 (8 px, `|dx| > 1,2·|dy|`, 30% ou rápido, `data-sem-gesto`). A tela acompanha o dedo e sai para o lado do arrasto. Toque que começa a menos de 24 px da borda esquerda é ignorado, para não somar com o voltar do próprio Safari. A dica passa a ser "Arraste para o lado para voltar".
+- **A2, defeito:** no app aberto pela Tela de Início, a metade de cima do título "Controladora PC" fica borrada. Causa provável: o iOS desfoca a faixa logo abaixo da barra de status, e o título começava exatamente na borda segura (`max(12px, env(safe-area-inset-top))`). Correção: o espaço do topo passa a ser `calc(env(safe-area-inset-top) + 12px)`, nas telas da pilha, na faixa de conexão e no topo da Galeria. A confirmação fica para o reteste no iPhone.
+- **A3, pedido:** no aviso, o botão da ação (`principal`, como o "Aplicar") ficava escuro, porque `.aviso .linha .botao` tirava o fundo de destaque. Agora o fundo escuro só vale para os botões que não são `principal`, e a ação fica na cor da borda (`--accent`).
+- **A4, pedido:** os favoritos do Início (parte 15a) usam blocos do tamanho dos da grade de 2, numa faixa que arrasta para o lado. A faixa ganhou a opção `larga` (`criarFaixa({ larga: true })`), com a Galeria e o `LEIAME.md` atualizados. Conferido: o bloco tem 146,5 × 76 px, igual ao da grade de 2, e a faixa rola para o lado.
+- **A5, pedido (mão direita e esquerda):** o app deve funcionar bem com qualquer uma das mãos.
+  - Cartão de app: o botãozinho de saída sai de baixo do nome e vai para a ponta da linha do nome, do lado da mão usada. Tocar nele continua abrindo a folha de saídas.
+  - Preferência "Mão usada: direita | esquerda" (padrão direita) em `app/js/preferencias.js`: `lerMao()`, `definirMao(m)` e `aoMudarMao(fn)`. A escolha fica no `localStorage`, com `try/catch`, e aplica a classe `mao-esquerda` no `<html>`.
+  - Os componentes trocam de lado só pelo CSS, sem mudar a interface. Com a mão esquerda: no cartão de app, o avatar vai para a direita e a saída para a esquerda; a faixa de rolagem do touchpad passa para a esquerda; o painel de vidro deitado e a bolha dele vão para baixo à esquerda.
+  - Tela "Opções" (`telas/opcoes.js`), aberta por um chip com engrenagem no topo do Início, com o grupo de chips "Mão usada". A Galeria ganha o mesmo grupo para conferir.
+- Conferência do A5 (Opus, navegador embutido): com a mão esquerda, o cartão de app espelha (a saída à esquerda, o avatar à direita e a música alinhada sob o nome, corrigido na conferência), a faixa do touchpad vai para a esquerda e a escolha fica salva; a tela Opções abre pelo chip do Início. Testes 938/938.
+- Conferência (Opus, navegador embutido): o arrasto para a direita acompanha o dedo e sai para a direita; o toque a menos de 24 px da borda esquerda é ignorado; um aviso aberto bloqueia o gesto; o "Aplicar" tem fundo `--accent` e texto `--accent-ink`. Testes 937/937. Entrega: versão 1.3.1 com uma entrada nas Novidades.
 
 ## 8. Pendências
+
+- Novidades da versão do fim da Fase 15: incluir os ajustes da Fase 14 (arrastar para os dois lados, título sem borrão no topo, botão de confirmar em destaque, escolha da mão usada).
 
 - `/icone/` manda dois `Cache-Control` e o navegador nunca guarda o ícone (desde a Fase 9). Corrigir à parte, se o usuário quiser.
 - Fase 17: `/` passa a servir `app/index.html`, `/novo` vira redirecionamento para `/` (atalhos criados na prévia continuam valendo), o manifesto troca `start_url` para `/` e a pasta `antigo/` sai com o hash da D8.

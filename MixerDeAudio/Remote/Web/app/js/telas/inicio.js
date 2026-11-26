@@ -2,6 +2,7 @@
 // Mesma regra de grupos da página antiga (antigo/10-menu.js, renderPc): cada área só aparece se o grupo dela estiver ligado no PC.
 import { criarBloco } from '../componentes/bloco.js';
 import { criarBotao } from '../componentes/botao.js';
+import { criarChip } from '../componentes/chip.js';
 
 export const AREAS = [
   { nome: 'som', rotulo: 'Som', icone: 'volume', grupo: null },
@@ -23,7 +24,7 @@ export function areasVisiveis(ferr) {
 }
 
 // opções: { aoAbrirArea(nome), aoDesconectar }. Devolve { el, atualizar(estado) }.
-export function criarTelaInicio({ aoAbrirArea, aoDesconectar }) {
+export function criarTelaInicio({ aoAbrirArea, aoAbrirOpcoes, aoDesconectar }) {
   const el = document.createElement('section');
   el.className = 'tela';
   el.dataset.tela = 'inicio';
@@ -31,6 +32,10 @@ export function criarTelaInicio({ aoAbrirArea, aoDesconectar }) {
   const titulo = document.createElement('h1');
   titulo.className = 'tela-titulo';
   titulo.textContent = 'Controladora PC';
+  const opcoes = criarChip({ texto: 'Opções', icone: 'gear', aoClicar: () => { if (aoAbrirOpcoes) aoAbrirOpcoes(); } });
+  const topo = document.createElement('div');
+  topo.className = 'inicio-topo';
+  topo.append(titulo, opcoes.el);
   const rotulo = document.createElement('div');
   rotulo.className = 'rotulo';
   rotulo.textContent = 'Todas as funções';
@@ -40,7 +45,7 @@ export function criarTelaInicio({ aoAbrirArea, aoDesconectar }) {
   const rodape = document.createElement('div');
   rodape.className = 'rodape';
   rodape.textContent = 'Prévia da Controladora PC';
-  el.append(titulo, rotulo, grade, sair.el, rodape);
+  el.append(topo, rotulo, grade, sair.el, rodape);
 
   let assinatura = '';
   return {

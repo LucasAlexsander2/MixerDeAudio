@@ -1,4 +1,4 @@
-// Dica (guia 4.5): pílula embaixo, aparece uma vez ("Arraste para a esquerda para voltar"). Quem decide "uma vez" é a tela que a usa.
+// Dica (guia 4.5): pílula embaixo, aparece uma vez ("Arraste para o lado para voltar"). Quem decide "uma vez" é a tela que a usa.
 
 // opções: { container }. Devolve { el, mostrar(texto, ms = 3000), esconder(), destruir() }.
 export function criarDica({ container }) {

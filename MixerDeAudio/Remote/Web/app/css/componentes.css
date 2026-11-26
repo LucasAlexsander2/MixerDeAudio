@@ -30,7 +30,8 @@
 .aviso h2{margin:0 0 6px;font-size:17px}
 .aviso p{margin:0 0 16px;color:var(--muted);font-size:13px}
 .aviso .linha{display:flex;gap:var(--espaco)}
-.aviso .linha .botao{flex:1;background:var(--surface)}
+.aviso .linha .botao{flex:1}
+.aviso .linha .botao:not(.principal){background:var(--surface)}
 
 /* toast e dica */
 .toast{position:absolute;top:calc(12px + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);max-width:calc(100% - 32px);background:var(--fg);color:var(--bg);padding:9px 16px;border-radius:20px;font-size:13px;font-weight:600;z-index:60;pointer-events:none;text-align:center}
@@ -44,6 +45,9 @@
 .faixa{display:flex;flex-shrink:0;gap:var(--espaco);overflow-x:auto;scroll-snap-type:x proximity;scrollbar-width:none;padding:2px 0 6px;touch-action:pan-x pan-y;-webkit-overflow-scrolling:touch}
 .faixa::-webkit-scrollbar{display:none}
 .faixa.duas{display:grid;grid-auto-flow:column;grid-template-rows:repeat(2,76px);grid-auto-columns:100px}
+.faixa.larga .bloco{width:calc((100% - var(--espaco)) / 2)}
+.faixa.duas.larga{grid-auto-columns:calc((100% - var(--espaco)) / 2)}
+.faixa.duas.larga .bloco{width:auto}
 .grade2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--espaco);flex-shrink:0}
 .grade2 .bloco{width:auto;min-width:0}
 .grade3.alta .bloco,.grade2.alta .bloco{min-height:88px;line-height:1.25}
@@ -66,10 +70,12 @@
 .cartao-app .l1{display:flex;gap:12px;align-items:center}
 .avatar{width:48px;height:48px;border-radius:50%;background:var(--surface-2);border:1px solid var(--line);display:grid;place-items:center;font-weight:700;font-size:18px;flex:none;position:relative;overflow:hidden}
 .avatar.mudo::after{content:"";position:absolute;left:8px;right:8px;top:50%;height:2px;background:var(--danger);transform:rotate(-45deg)}
-.cartao-app .textos{display:flex;flex-direction:column;min-width:0;gap:2px;align-items:flex-start}
+.cartao-app .textos{display:flex;flex-direction:column;min-width:0;flex:1;gap:2px;align-items:stretch}
+.cartao-app .nome-linha{display:flex;align-items:center;gap:8px;min-width:0}
+.cartao-app .nome-linha b{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cartao-app .textos b{font-size:15px;font-weight:700}
 .cartao-app .musica{font-size:12px;color:var(--muted);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.chip-saida{position:relative;margin-top:4px;height:26px;max-width:100%;padding:0 10px 0 8px;border-radius:13px;border:1px solid var(--line);background:var(--surface-2);font-size:11px;font-weight:600;display:inline-flex;align-items:center;gap:5px;color:var(--accent)}
+.chip-saida{position:relative;flex:none;height:26px;max-width:55%;padding:0 10px 0 8px;border-radius:13px;border:1px solid var(--line);background:var(--surface-2);font-size:11px;font-weight:600;display:inline-flex;align-items:center;gap:5px;color:var(--accent)}
 .chip-saida::before{content:"";position:absolute;inset:-9px 0}
 .chip-saida .ic{width:14px;height:14px}
 .chip-saida span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -145,7 +151,7 @@
 .touchpad.deitado .tp-bolha[hidden]{display:none}
 
 /* galeria (D26; sai na Fase 17) */
-.galeria-topo{position:sticky;top:calc(-1 * max(12px,env(safe-area-inset-top,0px)));z-index:5;background:var(--bg);padding-top:max(12px,env(safe-area-inset-top,0px));margin-top:calc(-1 * max(12px,env(safe-area-inset-top,0px)))}
+.galeria-topo{position:sticky;top:calc(-1 * calc(env(safe-area-inset-top,0px) + 12px));z-index:5;background:var(--bg);padding-top:calc(env(safe-area-inset-top,0px) + 12px);margin-top:calc(-1 * calc(env(safe-area-inset-top,0px) + 12px))}
 .galeria .evento{min-height:36px;display:flex;align-items:center;padding:0 12px;margin-bottom:4px;background:var(--surface);border:1px solid var(--line);border-radius:var(--canto-botao);font-size:12px;color:var(--accent);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .galeria-corpo{display:flex;flex-direction:column;gap:var(--espaco);flex-shrink:0}
 .galeria-corpo>*{flex-shrink:0}
@@ -153,3 +159,16 @@
 .galeria-pad{display:flex;height:300px;flex:none}
 .galeria-deitado{position:absolute;inset:0;z-index:35;background:var(--bg);display:flex;align-items:center;justify-content:center}
 .galeria-deitado .fechar-deitado{position:absolute;left:max(12px,env(safe-area-inset-left,0px));top:max(12px,env(safe-area-inset-top,0px));z-index:7}
+
+/* A5: mão esquerda (preferencias.js põe a classe no <html>; os componentes só espelham pelo CSS) */
+.inicio-topo{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
+.inicio-topo .tela-titulo{margin:4px 0}
+.mao-esquerda .cartao-app .l1{flex-direction:row-reverse}
+.mao-esquerda .cartao-app .nome-linha{flex-direction:row-reverse}
+.mao-esquerda .cartao-app .nome-linha b{text-align:right}
+.mao-esquerda .cartao-app .musica{text-align:right;margin-left:auto}
+.mao-esquerda .tp-faixa{right:auto;left:6px}
+.mao-esquerda .tp-dica{left:56px;right:44px}
+.mao-esquerda .touchpad.deitado .tp-painel{right:auto;left:max(12px,env(safe-area-inset-left,0px))}
+.mao-esquerda .touchpad.deitado .tp-bolha{right:auto;left:max(16px,env(safe-area-inset-left,0px))}
+.mao-esquerda .tp-esconder{right:auto;left:0}

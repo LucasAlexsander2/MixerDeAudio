@@ -291,4 +291,19 @@ public class WebFrontTests
         Assert.Contains("registrar('galeria'", app);
         Assert.Matches(@"else iniciarConexao\(", app); // no modo galeria a conexao nem comeca
     }
+
+    [Fact]
+    public void MaoEsquerda_PreferenciasECssEOpcoesRegistradas()
+    {
+        var pref = File.ReadAllText(Path.Combine(AppDir(), "js", "preferencias.js"));
+        foreach (var f in new[] { "lerMao", "definirMao", "aoMudarMao" })
+            Assert.Matches(@"export function " + f + @"\(", pref);
+        var css = File.ReadAllText(Path.Combine(AppDir(), "css", "componentes.css"));
+        Assert.Matches(@"\.mao-esquerda[^{]*\.cartao-app", css);
+        Assert.Matches(@"\.mao-esquerda[^{]*\.tp-", css);
+        Assert.True(File.Exists(Path.Combine(AppDir(), "js", "telas", "opcoes.js")));
+        var app = File.ReadAllText(Path.Combine(AppDir(), "js", "app.js"));
+        Assert.Contains("registrar('opcoes'", app);
+        Assert.Contains("lerMao()", app);
+    }
 }
