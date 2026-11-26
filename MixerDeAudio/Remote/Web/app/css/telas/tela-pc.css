@@ -1,1 +1,36 @@
-/* Estilos da tela Tela do PC (parte 15c); vazio na Fase 15.0. */
+/* Estilos da Tela do PC (parte 15c, D16): imagem + touchpad, em pé e deitado. Só tokens. */
+.tela-pc .tpc-caixa{position:relative;flex:1 0 auto;display:flex;flex-direction:column;gap:8px;min-height:0}
+
+/* palco: a imagem; em pé tem a proporção da tela do PC */
+.tela-pc .tpc-palco{position:relative;flex:none;width:100%;aspect-ratio:var(--ar,16/9);max-height:48dvh;background:var(--surface);border:1px solid var(--line);border-radius:var(--canto-botao);overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none}
+.tela-pc .tpc-zoom{position:absolute;inset:0;transform-origin:0 0;will-change:transform}
+.tela-pc .tpc-img{display:block;width:100%;height:100%;object-fit:contain;pointer-events:none}
+.tela-pc .tpc-ponto{position:absolute;width:22px;height:22px;margin:-11px 0 0 -11px;border-radius:50%;border:2px solid var(--accent);background:var(--sel);pointer-events:none}
+.tela-pc .tpc-msg{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:16px;text-align:center;background:var(--scrim)}
+.tela-pc .tpc-msg p{margin:0;color:var(--fg)}
+.tela-pc .tpc-girar{position:absolute;left:0;right:0;bottom:calc(24px + env(safe-area-inset-bottom,0px));text-align:center;color:var(--fg);background:var(--scrim);padding:8px;font-size:13px;pointer-events:none}
+
+/* barra */
+.tela-pc .tpc-barra{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.tela-pc .tpc-barra .chips{flex-wrap:nowrap}
+.tela-pc .tpc-ib{width:44px;height:44px;border-radius:var(--canto-botao);background:var(--surface);border:1px solid var(--line);display:grid;place-items:center;color:var(--fg)}
+.tela-pc .tpc-ib .ic{width:22px;height:22px}
+.tela-pc .tpc-ib[aria-pressed=true]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.tela-pc .so-deitada{display:none}
+.tela-pc .tpc-barra.oculta{opacity:0;pointer-events:none}
+
+/* teclado do PC */
+.tela-pc .tpc-teclado{flex:none;display:flex;flex-direction:column;gap:8px}
+.tela-pc .tpc-teclas{grid-template-columns:repeat(8,minmax(0,1fr))}
+
+/* tela cheia e deitado: a imagem ocupa a tela, a barra e o touchpad flutuam por cima */
+body.tela-pc-deitada .app{max-width:none;box-shadow:none}
+.tela-pc.deitada{padding:0;overflow:hidden}
+.tela-pc.deitada .cabecalho{display:none}
+.tela-pc.deitada .tpc-caixa{position:absolute;inset:0;flex:none;gap:0;background:var(--bg)}
+.tela-pc.deitada .tpc-palco{position:absolute;inset:0;width:auto;max-height:none;aspect-ratio:auto;border:0;border-radius:0}
+.tela-pc.deitada .so-deitada{display:grid}
+.tela-pc.deitada .tpc-barra{position:absolute;z-index:7;top:max(8px,env(safe-area-inset-top,0px));left:max(8px,env(safe-area-inset-left,0px));max-width:calc(100% - 16px);padding:4px;border-radius:14px;background:var(--glass);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);transition:opacity .2s}
+.tela-pc.deitada .tpc-teclado{position:absolute;z-index:7;top:calc(max(8px,env(safe-area-inset-top,0px)) + 60px);left:max(8px,env(safe-area-inset-left,0px));right:max(8px,env(safe-area-inset-right,0px));padding:8px;border-radius:14px;background:var(--glass);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);max-height:60%;overflow-y:auto}
+.tela-pc.tpc-fs .tpc-caixa.fs{position:fixed;inset:0;z-index:50}
+.tela-pc.tpc-fs{overflow:hidden}

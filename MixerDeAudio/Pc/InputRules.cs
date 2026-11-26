@@ -94,6 +94,79 @@ public static class InputRules
         return true;
     }
 
+    // ---- Teclas com modificadores presos (Fase 15c, D15) ----
+
+    private static readonly string[] ModNames = { "ctrl", "alt", "shift", "win" };
+    private static readonly ushort[] ModCodes = { VkCtrl, VkAlt, VkShift, VkLWin };
+    private const string ComboLetters = "cvxzasfwtd";
+
+    /// <summary>Número máximo de modificadores aceitos na lista (os quatro, com repetição tolerada).</summary>
+    public const int MaxMods = 8;
+
+    public static bool IsModName(string? name) => name is not null && Array.IndexOf(ModNames, name.ToLowerInvariant()) >= 0;
+
+    /// <summary>
+    /// Tecla da lista fixa apertada junto de modificadores (<c>ctrl</c>, <c>alt</c>, <c>shift</c>, <c>win</c>), como o celular manda em
+    /// <c>{"t":"tecla","k":"left","mods":["ctrl"]}</c>. A tecla tem de ser uma da lista sem modificador próprio ou uma das letras
+    /// dos atalhos da lista (c, v, x, z, a, s, f, w, t, d); com lista de modificadores vazia vale só a tecla da lista. Modificador
+    /// desconhecido, tecla fora da lista, lista grande demais ou Ctrl+Alt+Delete recusam. <paramref name="name"/> é o nome
+    /// canônico (<c>ctrl+alt+left</c>), que <see cref="TryKeyOrCombo"/> entende de volta.
+    /// </summary>
+    public static bool TryCombo(string? key, IReadOnlyList<string>? mods, out string name, out IReadOnlyList<KeyEvent> events)
+    {
+        name = "";
+        events = Array.Empty<KeyEvent>();
+        if (key is null) return false;
+        if (mods is null || mods.Count == 0)
+        {
+            if (!TryKey(key, out events)) return false;
+            name = key.ToLowerInvariant();
+            return true;
+        }
+        if (mods.Count > MaxMods) return false;
+        var chosen = new bool[ModNames.Length];
+        foreach (var m in mods)
+        {
+            var i = m is null ? -1 : Array.IndexOf(ModNames, m.ToLowerInvariant());
+            if (i < 0) return false;
+            chosen[i] = true;
+        }
+        var k = key.ToLowerInvariant();
+        ushort vk;
+        var extended = false;
+        if (k.Length == 1 && ComboLetters.Contains(k[0])) vk = char.ToUpperInvariant(k[0]);
+        else if (Keys.TryGetValue(k, out var def) && def.Mods.Length == 0) { vk = def.Key; extended = def.Extended; }
+        else return false;
+        if (chosen[0] && chosen[1] && k == "delete") return false; // nunca Ctrl+Alt+Delete
+        var list = new List<KeyEvent>();
+        var label = new List<string>();
+        for (var i = 0; i < ModNames.Length; i++)
+        {
+            if (!chosen[i]) continue;
+            list.Add(new KeyEvent(false, ModCodes[i], false, ModCodes[i] == VkLWin));
+            label.Add(ModNames[i]);
+        }
+        var pressed = list.Count;
+        list.Add(new KeyEvent(false, vk, false, extended));
+        list.Add(new KeyEvent(false, vk, true, extended));
+        for (var i = pressed - 1; i >= 0; i--) list.Add(new KeyEvent(false, list[i].Code, true, list[i].Extended));
+        label.Add(k);
+        name = string.Join('+', label);
+        events = list;
+        return true;
+    }
+
+    /// <summary>Nome da lista fixa (<see cref="TryKey"/>) ou nome canônico de <see cref="TryCombo"/> (<c>ctrl+left</c>).</summary>
+    public static bool TryKeyOrCombo(string? name, out IReadOnlyList<KeyEvent> events)
+    {
+        if (TryKey(name, out events)) return true;
+        events = Array.Empty<KeyEvent>();
+        if (name is null) return false;
+        var parts = name.Split('+');
+        if (parts.Length < 2) return false;
+        return TryCombo(parts[^1], parts[..^1], out _, out events);
+    }
+
     /// <summary>
     /// Texto digitado: cada unidade UTF-16 vira um evento Unicode apertado e solto (um emoji são duas); quebra de linha
     /// (<c>\n</c>, <c>\r</c> ou <c>\r\n</c>) vira Enter; outros caracteres de controle (menos Tab) são ignorados.

@@ -647,7 +647,8 @@ function CelularTelaLer($linhas, $codigo) {
     $p = "$l" -split "`t"
     if ($p[0] -eq 'PASSO' -and $p.Count -ge 8) {
       $d = $p[5] -split 'x'
-      $passos += [pscustomobject]@{ I = [int]$p[1]; Q = $p[2]; Quadros = [int]$p[3]; Bytes = [int]$p[4]; W = [int]$d[0]; H = [int]$d[1]; Seg = [double]::Parse($p[6], [Globalization.CultureInfo]::InvariantCulture); Jpeg = ($p[7] -eq 'jpeg') }
+      $passos += [pscustomobject]@{ I = [int]$p[1]; Q = $p[2]; Quadros = [int]$p[3]; Bytes = [int]$p[4]; W = [int]$d[0]; H = [int]$d[1]; Seg = [double]::Parse($p[6], [Globalization.CultureInfo]::InvariantCulture); Jpeg = ($p[7] -eq 'jpeg')
+        Textos = $(if ($p.Count -ge 12) { [int]$p[8] } else { 0 }); Pares = $(if ($p.Count -ge 12) { [int]$p[9] } else { 0 }); Fora = $(if ($p.Count -ge 12) { [int]$p[10] } else { 0 }); SemTexto = $(if ($p.Count -ge 12) { [int]$p[11] } else { 0 }) }
     }
     elseif ($p[0] -eq 'FECHOU') { $fechou = [int]$p[1] }
     elseif ($p[0] -eq 'RECUSADO') { $recusado = ($p[1..($p.Count - 1)] -join ' ') }

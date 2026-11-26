@@ -577,7 +577,7 @@ internal sealed class RemoteServer : IDisposable
     // ---- GET /tela/ws (Fase 10, D1 a D4, D9) ----
 
     /// <summary>Configuração atual do canal da tela (troca atômica da referência).</summary>
-    private sealed record ScreenConfig(int Monitor, int Width, ScreenQuality Quality);
+    private sealed record ScreenConfig(int Monitor, int Width, ScreenQuality Quality, double Cursor = 1.0, bool Pointer = false);
 
     /// <summary>Estado compartilhado entre o recebimento e o envio de um canal da tela.</summary>
     private sealed class ScreenChannel
@@ -714,7 +714,7 @@ internal sealed class RemoteServer : IDisposable
                     {
                         var q = ScreenRules.QualityFor(msg.Quality);
                         channel.LastQuality = q.Id;
-                        Volatile.Write(ref channel.Config, new ScreenConfig(msg.Monitor, msg.Width, q));
+                        Volatile.Write(ref channel.Config, new ScreenConfig(msg.Monitor, msg.Width, q, msg.Cursor, msg.Pointer));
                         if (!channel.Started) { channel.Started = true; channel.GrantFrame(); }
                         break;
                     }
@@ -753,13 +753,16 @@ internal sealed class RemoteServer : IDisposable
                 if (!ScreenStreamRules.CanCapture(true, since, cfg.Quality.Interval))
                     await Task.Delay(ScreenStreamRules.RemainingDelay(since, cfg.Quality.Interval), ct).ConfigureAwait(false);
                 lastStart = Stopwatch.GetTimestamp();
-                var frame = await capture.CaptureAsync(cfg.Monitor, cfg.Width, cfg.Quality).ConfigureAwait(false);
+                var frame = await capture.CaptureAsync(cfg.Monitor, cfg.Width, cfg.Quality, cfg.Cursor).ConfigureAwait(false);
                 if (frame.Failed)
                 {
                     await CloseScreenAsync(socket, 4004, "indisponivel").ConfigureAwait(false);
                     return;
                 }
                 if (frame.Jpeg is null) continue; // igual ao anterior: não vai, tenta de novo no próximo intervalo
+                // Fase 15c, D16 e D21: só com p:1 e junto do quadro (nenhum timer); sem p:1 o canal manda só o quadro, como sempre
+                if (cfg.Pointer && capture.LastPointer is { } ptr)
+                    await socket.SendAsync(Encoding.UTF8.GetBytes(ScreenStreamRules.PointerMessage(ptr.X, ptr.Y)), WebSocketMessageType.Text, true, ct).ConfigureAwait(false);
                 await socket.SendAsync(frame.Jpeg, WebSocketMessageType.Binary, true, ct).ConfigureAwait(false);
                 break;
             }
