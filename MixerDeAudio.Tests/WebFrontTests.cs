@@ -306,4 +306,74 @@ public class WebFrontTests
         Assert.Contains("registrar('opcoes'", app);
         Assert.Contains("lerMao()", app);
     }
+
+    // Fase 15.0: módulo e CSS de cada área, ligados no index.html e no app.js
+    private static readonly string[] ModulosDeArea =
+        ["som", "energia", "monitores", "sono", "estado-pc", "controle", "tela-pc", "janelas", "atalhos", "enviar"];
+
+    [Fact]
+    public void Areas_CadaModuloTemCriarTelaEACssLigado()
+    {
+        var html = File.ReadAllText(Path.Combine(AppDir(), "index.html"));
+        var app = File.ReadAllText(Path.Combine(AppDir(), "js", "app.js"));
+        foreach (var m in ModulosDeArea)
+        {
+            var js = Path.Combine(AppDir(), "js", "telas", m + ".js");
+            Assert.True(File.Exists(js), "falta o módulo " + m);
+            Assert.Matches(@"export function criarTela\(ctx\)", File.ReadAllText(js));
+            Assert.True(File.Exists(Path.Combine(AppDir(), "css", "telas", m + ".css")), "falta o CSS " + m);
+            Assert.Contains("href=\"/app/css/telas/" + m + ".css\"", html);
+            Assert.Contains("'./telas/" + m + ".js'", app);
+        }
+        Assert.True(File.Exists(Path.Combine(AppDir(), "css", "telas", "inicio.css")));
+        Assert.Contains("href=\"/app/css/telas/inicio.css\"", html);
+    }
+
+    [Fact]
+    public void Areas_AppRegistraTodasAsAreasDeInicioComUmModulo()
+    {
+        var inicio = File.ReadAllText(Path.Combine(AppDir(), "js", "telas", "inicio.js"));
+        var app = File.ReadAllText(Path.Combine(AppDir(), "js", "app.js"));
+        var nomes = Regex.Matches(inicio, @"\{ nome: '(?<n>[a-z]+)', rotulo:").Select(m => m.Groups["n"].Value).ToList();
+        Assert.Equal(ModulosDeArea.Length, nomes.Count);
+        foreach (var n in nomes) Assert.Matches(@"\b" + n + @": criarTela\w+,", app);
+        Assert.Contains("for (const a of AREAS) pilha.registrar(a.nome", app);
+    }
+
+    [Fact]
+    public void Assinaturas_ArquivoEAoMensagemExistem()
+    {
+        var ass = File.ReadAllText(Path.Combine(AppDir(), "js", "assinaturas.js"));
+        Assert.Matches(@"export function assinar\(", ass);
+        Assert.Contains("t: 'assinar'", ass);
+        Assert.Contains("visibilitychange", ass);
+        Assert.Contains("aoAbrir(", ass);
+        var con = File.ReadAllText(Path.Combine(AppDir(), "js", "conexao.js"));
+        Assert.Matches(@"export function aoMensagem\(tipo, fn\)", con);
+        Assert.Matches(@"export function aoAbrir\(", con);
+        var pilha = File.ReadAllText(Path.Combine(AppDir(), "js", "pilha.js"));
+        Assert.Contains("aoTopo", pilha);
+        Assert.Contains("destruir", pilha);
+        Assert.Contains("inicialTopo", pilha);
+        var pref = File.ReadAllText(Path.Combine(AppDir(), "js", "preferencias.js"));
+        Assert.Matches(@"export function ler\(chave, padrao\)", pref);
+        Assert.Matches(@"export function gravar\(chave, valor\)", pref);
+    }
+
+    [Fact]
+    public void TelasLeiame_CitaCadaFuncaoDoCtx()
+    {
+        var leiame = File.ReadAllText(Path.Combine(AppDir(), "js", "telas", "LEIAME.md"));
+        foreach (var f in new[] { "enviar", "aoMudar", "obterEstado", "aoMensagem", "assinar", "toast", "camadas", "abrir", "voltar", "preferencias" })
+            Assert.Contains("ctx." + f, leiame);
+        foreach (var t in new[] { "aoTopo", "destruir", "inicialTopo", "ler(chave, padrao)", "gravar(chave, valor)", "D8", "D9", "D10" })
+            Assert.Contains(t, leiame);
+        // todos os campos do ctx do app.js estão no LEIAME
+        var app = File.ReadAllText(Path.Combine(AppDir(), "js", "app.js"));
+        var corpo = Regex.Match(app, @"const ctx = \{(?<c>.*?)
+\};", RegexOptions.Singleline).Groups["c"].Value;
+        var campos = Regex.Matches(corpo, @"^\s{2}(?<n>[a-zA-Z]+)\s*[,:]", RegexOptions.Multiline).Select(m => m.Groups["n"].Value).ToList();
+        Assert.Equal(10, campos.Count);
+        Assert.All(campos, c => Assert.Contains("ctx." + c, leiame));
+    }
 }

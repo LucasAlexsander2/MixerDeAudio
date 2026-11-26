@@ -13,6 +13,8 @@ let ocupado = false;
 let pareando = false;
 let retomavel = false;
 let h = {};
+const ouvintesMsg = new Map(); // tipo -> Set de funções (mensagens que a conexão não trata: janelas, clip, info...)
+const ouvintesAbriu = new Set(); // chamados a cada conexão aberta (a primeira e as reconexões)
 
 // h: { aoConectado, aoOcupado(por), aoDesconectado(mensagem), aoPareamento, aoReconectando(ligado, texto), aoAviso(texto) }
 export function iniciarConexao(handlers) {
@@ -37,6 +39,22 @@ export function iniciarConexao(handlers) {
 
 export function enviar(obj) {
   if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj));
+}
+
+// Recebe as mensagens do PC que a conexão não trata (tudo menos estado, ocupado, desconectado e aviso), por tipo (`m.t`).
+// fn(mensagem). Devolve a função que cancela.
+export function aoMensagem(tipo, fn) {
+  let conj = ouvintesMsg.get(tipo);
+  if (!conj) { conj = new Set(); ouvintesMsg.set(tipo, conj); }
+  conj.add(fn);
+  return () => conj.delete(fn);
+}
+
+// fn() a cada vez que o WebSocket abre (primeira conexão e reconexões); usado por assinaturas.js para mandar de novo os `assinar`.
+// Devolve a função que cancela.
+export function aoAbrir(fn) {
+  ouvintesAbriu.add(fn);
+  return () => ouvintesAbriu.delete(fn);
 }
 
 // Botão "Conectar" da tela de desconectado.
@@ -74,7 +92,12 @@ function conectar() {
   let s;
   try { s = new WebSocket('ws://' + location.host + '/ws'); } catch { esperar(); return; }
   ws = s;
-  s.onopen = () => { abriu = true; tentativas = 0; h.aoReconectando(false); };
+  s.onopen = () => {
+    abriu = true;
+    tentativas = 0;
+    h.aoReconectando(false);
+    for (const fn of [...ouvintesAbriu]) { try { fn(); } catch (e) { console.error(e); } }
+  };
   s.onmessage = (e) => {
     let m;
     try { m = JSON.parse(e.data); } catch { return; }
@@ -94,8 +117,10 @@ function conectar() {
       desconectado = true;
     } else if (m.t === 'aviso') {
       h.aoAviso(m.msg);
+    } else {
+      const conj = ouvintesMsg.get(m.t);
+      if (conj) for (const fn of [...conj]) { try { fn(m); } catch (e) { console.error(e); } }
     }
-    // janelas, clip e info chegam com as áreas da Fase 15
   };
   s.onclose = (e) => {
     if (ws !== s) return;

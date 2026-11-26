@@ -3,7 +3,7 @@ const CHAVE = 'mao';
 const ouvintes = [];
 let atual = null;
 
-function ler() {
+function lerMaoSalva() {
   try { return localStorage.getItem(CHAVE) === 'esquerda' ? 'esquerda' : 'direita'; } catch { return 'direita'; }
 }
 function aplicar(mao) {
@@ -12,7 +12,7 @@ function aplicar(mao) {
 
 // 'direita' ou 'esquerda'
 export function lerMao() {
-  if (atual === null) { atual = ler(); aplicar(atual); }
+  if (atual === null) { atual = lerMaoSalva(); aplicar(atual); }
   return atual;
 }
 
@@ -27,4 +27,18 @@ export function definirMao(mao) {
 export function aoMudarMao(fn) {
   ouvintes.push(fn);
   return () => { const i = ouvintes.indexOf(fn); if (i >= 0) ouvintes.splice(i, 1); };
+}
+
+// Preferências genéricas (D6): cada área usa chaves com o próprio prefixo (`inicio.`, `tela.`...).
+// ler(chave, padrao): o valor guardado (JSON) ou `padrao` se não houver, estiver estragado ou o armazenamento falhar.
+export function ler(chave, padrao) {
+  try {
+    const v = localStorage.getItem(chave);
+    return v === null ? padrao : JSON.parse(v);
+  } catch { return padrao; }
+}
+
+// gravar(chave, valor): guarda o valor como JSON; sem armazenamento, não faz nada (devolve false).
+export function gravar(chave, valor) {
+  try { localStorage.setItem(chave, JSON.stringify(valor)); return true; } catch { return false; }
 }

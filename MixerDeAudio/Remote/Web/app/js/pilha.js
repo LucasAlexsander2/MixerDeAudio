@@ -3,12 +3,15 @@
 
 const DURACAO = 280;
 
-// opções: { raiz, inicial: HTMLElement, bloqueado: () => bool, aoAbrir(nome, profundidade) }.
+// opções: { raiz, inicial: HTMLElement, inicialTopo(sim), bloqueado: () => bool, aoAbrir(nome, profundidade) }.
 // Devolve { registrar(nome, fabrica), abrir(nome), voltar(), reiniciar(), profundidade(), topo() }.
-// A fábrica devolve o elemento da tela (uma seção com a classe "tela"); ele é criado ao abrir e removido ao fechar.
-export function criarPilha({ raiz, inicial, bloqueado = () => false, aoAbrir }) {
+// A fábrica devolve o elemento da tela (uma seção com a classe "tela") ou, na Fase 15 (D5), { el, aoTopo?(sim), destruir?() }.
+// O elemento é criado ao abrir e removido ao fechar. aoTopo(true) quando a tela fica no topo; aoTopo(false) quando outra tela entra por
+// cima ou quando ela sai; destruir() quando ela sai da pilha (inclusive no reiniciar). O Início não vem de fábrica: `inicialTopo(sim)`
+// faz o papel do aoTopo dele (chamado com true já na criação, e com false/true quando outra tela entra/sai por cima).
+export function criarPilha({ raiz, inicial, inicialTopo, bloqueado = () => false, aoAbrir }) {
   const fabricas = new Map();
-  const pilha = [{ nome: 'inicio', el: inicial }];
+  const pilha = [{ nome: 'inicio', el: inicial, aoTopo: inicialTopo }];
   raiz.append(inicial);
   let ignorarPop = 0;
   let sentidoSaida = -1; // -1: sai para a esquerda (padrão); 1: sai para a direita (gesto arrastado para a direita)
@@ -22,6 +25,17 @@ export function criarPilha({ raiz, inicial, bloqueado = () => false, aoAbrir }) 
     el.style.transform = 'translate3d(' + x + 'px,0,0)';
   }
 
+  // chama o aoTopo da tela de forma segura (um erro de uma tela não derruba a pilha)
+  function avisarTopo(t, sim) {
+    if (!t || !t.aoTopo || t.noTopo === sim) return; // só avisa quando muda (não repete false ao sair depois de ficar coberta)
+    t.noTopo = sim;
+    try { t.aoTopo(sim); } catch (e) { console.error(e); }
+  }
+  function destruir(t) {
+    avisarTopo(t, false);
+    if (t && t.destruir) { try { t.destruir(); } catch (e) { console.error(e); } }
+  }
+
   function atualizarInerte() {
     pilha.forEach((t, i) => { t.el.inert = i < pilha.length - 1; });
   }
@@ -29,20 +43,27 @@ export function criarPilha({ raiz, inicial, bloqueado = () => false, aoAbrir }) 
   function empilhar(nome) {
     const f = fabricas.get(nome);
     if (!f) return false;
-    const el = f();
+    const r = f();
+    const tela = r instanceof Element ? { el: r } : r;
+    const el = tela.el;
     raiz.append(el);
     mover(el, largura(), false);
     void el.offsetWidth;
     mover(el, 0, true);
-    pilha.push({ nome, el });
+    avisarTopo(topo(), false);
+    pilha.push({ nome, el, aoTopo: tela.aoTopo, destruir: tela.destruir });
     atualizarInerte();
+    avisarTopo(topo(), true);
     if (aoAbrir) aoAbrir(nome, pilha.length - 1);
     return true;
   }
 
   function desempilhar() {
     if (pilha.length < 2) return;
-    const { el } = pilha.pop();
+    const saiu = pilha.pop();
+    const el = saiu.el;
+    destruir(saiu);
+    avisarTopo(topo(), true);
     atualizarInerte();
     mover(el, sentidoSaida * largura(), true);
     sentidoSaida = -1;
@@ -66,7 +87,12 @@ export function criarPilha({ raiz, inicial, bloqueado = () => false, aoAbrir }) 
     reiniciar() {
       const n = pilha.length - 1;
       if (n <= 0) return;
-      while (pilha.length > 1) pilha.pop().el.remove();
+      while (pilha.length > 1) {
+        const saiu = pilha.pop();
+        destruir(saiu);
+        saiu.el.remove();
+      }
+      avisarTopo(topo(), true);
       atualizarInerte();
       ignorarPop++;
       history.go(-n);
@@ -94,6 +120,7 @@ export function criarPilha({ raiz, inicial, bloqueado = () => false, aoAbrir }) 
   } else if (!estadoInicial || estadoInicial.n !== 0) {
     history.replaceState({ n: 0 }, '');
   }
+  avisarTopo(topo(), true); // o Início começa no topo
 
   // gesto de voltar (D13)
   let g = null;
