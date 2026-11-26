@@ -44,6 +44,7 @@
     <Compile Include="..\MixerDeAudio\Remote\RemoteRules.cs" Link="Remote\RemoteRules.cs" />
     <Compile Include="..\MixerDeAudio\Remote\RemoteProtocol.cs" Link="Remote\RemoteProtocol.cs" />
     <Compile Include="..\MixerDeAudio\Remote\RemoteTools.cs" Link="Remote\RemoteTools.cs" />
+    <Compile Include="..\MixerDeAudio\Remote\WebAssets.cs" Link="Remote\WebAssets.cs" />
     <Compile Include="..\MixerDeAudio\Pc\PowerTimer.cs" Link="Pc\PowerTimer.cs" />
     <Compile Include="..\MixerDeAudio\Pc\BrightnessRules.cs" Link="Pc\BrightnessRules.cs" />
     <Compile Include="..\MixerDeAudio\Pc\BrightnessWorker.cs" Link="Pc\BrightnessWorker.cs" />

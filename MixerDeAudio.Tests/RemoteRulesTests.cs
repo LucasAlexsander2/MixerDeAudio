@@ -229,16 +229,22 @@ public class RemoteRulesTests
     [Fact]
     public void PaginaDoCelular_TemMenosDe64KbESemUrlExterna()
     {
-        var dir = AppContext.BaseDirectory;
-        string? path = null;
-        for (var d = new DirectoryInfo(dir); d is not null; d = d.Parent)
+        // Fase 14, D7: a pagina antiga agora e um conjunto de partes em Web/antigo, servidas concatenadas
+        string? dir = null;
+        for (var d = new DirectoryInfo(AppContext.BaseDirectory); d is not null; d = d.Parent)
         {
-            var candidate = Path.Combine(d.FullName, "MixerDeAudio", "Remote", "Web", "index.html");
-            if (File.Exists(candidate)) { path = candidate; break; }
+            var candidate = Path.Combine(d.FullName, "MixerDeAudio", "Remote", "Web", "antigo");
+            if (Directory.Exists(candidate)) { dir = candidate; break; }
         }
-        Assert.NotNull(path);
-        var bytes = File.ReadAllBytes(path!);
-        Assert.True(bytes.Length < 64 * 1024, $"index.html tem {bytes.Length} bytes");
+        Assert.NotNull(dir);
+        using var ms = new MemoryStream();
+        foreach (var part in WebAssets.OldPageParts)
+        {
+            var partBytes = File.ReadAllBytes(Path.Combine(dir!, part));
+            ms.Write(partBytes, 0, partBytes.Length);
+        }
+        var bytes = ms.ToArray();
+        Assert.True(bytes.Length < 64 * 1024, $"a pagina antiga tem {bytes.Length} bytes");
         var text = Encoding.UTF8.GetString(bytes);
         Assert.DoesNotMatch(@"https?://", text);
         Assert.DoesNotMatch(@"(src|href)\s*=\s*[""']?//", text);

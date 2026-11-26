@@ -9,7 +9,7 @@
     <AssemblyName>MixerDeAudio</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\MixerDeAudio.ico</ApplicationIcon>
-    <Version>1.2.0</Version>
+    <Version>1.3.0</Version>
     <!-- O Main é nosso (Program.cs): instância única antes de qualquer janela -->
     <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
     <Platforms>x64;ARM64</Platforms>
@@ -41,7 +41,8 @@
 
   <ItemGroup>
     <!-- Fase 6: a página do celular vai dentro do .exe (a final, da parte 6b) -->
-    <EmbeddedResource Include="Remote\Web\index.html" LogicalName="MixerDeAudio.Web.index.html" />
+    <!-- Fase 14, D3: tudo de Remote\Web (página antiga em partes, novo front e fontes) vai dentro do .exe como MixerDeAudio.Web/<caminho> -->
+    <EmbeddedResource Include="Remote\Web\**\*" Exclude="Remote\Web\**\*.md" LogicalName="MixerDeAudio.Web/$([System.String]::Copy('%(RecursiveDir)').Replace('\','/'))%(Filename)%(Extension)" />
     <!-- Fase 11: notas de cada versão, lidas pelo cartão "Novidades" -->
     <EmbeddedResource Include="Novidades.json" LogicalName="MixerDeAudio.Novidades.json" />
   </ItemGroup>

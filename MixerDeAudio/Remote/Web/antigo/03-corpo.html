@@ -1,0 +1,174 @@
+</style>
+</head>
+<body>
+<div id="banner" hidden>Reconectando…</div>
+
+<main id="pair" hidden>
+  <h1>Mixer de Áudio</h1>
+  <p>Digite o código de 6 dígitos que aparece nas Configurações do app, no PC.</p>
+  <input id="code" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="one-time-code" placeholder="000000" aria-label="Código de 6 dígitos">
+  <button id="go" disabled>Conectar</button>
+  <p id="perr" role="alert"></p>
+</main>
+
+<main id="mixer" hidden>
+  <h1>Mixer de Áudio</h1>
+  <div id="outs" role="group" aria-label="Saída de áudio"></div>
+  <div class="card" id="master">
+    <div class="top"><span class="ico">🔊</span><span class="name">Volume geral</span>
+      <button class="mute" id="mm" aria-label="Mudo geral">🔊</button></div>
+    <div class="sl"><input type="range" id="ms" min="0" max="100" step="1" aria-label="Volume geral"><span class="val" id="mv">0</span></div>
+  </div>
+  <div id="apps"></div>
+  <p id="empty" hidden>Nenhum app com som no momento.</p>
+  <button id="bye" class="wide">Desconectar</button>
+</main>
+
+<main id="pc" hidden>
+  <h1>PC</h1>
+  <section id="secPower" hidden>
+    <h2>Energia</h2>
+    <div class="card plan" id="pwPlan" hidden>
+      <div id="pwTxt" class="cd"></div>
+      <button id="pwCancel" class="wide">Cancelar</button>
+    </div>
+    <label class="lbl" for="pwSel">Quando</label>
+    <select id="pwSel">
+      <option value="0">Agora</option><option value="60">Em 1 min</option><option value="300">Em 5 min</option>
+      <option value="600">Em 10 min</option><option value="900">Em 15 min</option><option value="1800">Em 30 min</option>
+      <option value="2700">Em 45 min</option><option value="3600">Em 1 h</option><option value="5400">Em 1 h 30 min</option>
+      <option value="7200">Em 2 h</option><option value="10800">Em 3 h</option><option value="14400">Em 4 h</option>
+      <option value="28800">Em 8 h</option><option value="43200">Em 12 h</option><option value="86400">Em 24 h</option>
+    </select>
+    <div class="grid">
+      <button data-pw="desligar">Desligar</button><button data-pw="reiniciar">Reiniciar</button>
+      <button data-pw="suspender">Suspender</button><button data-pw="bloquear">Bloquear</button>
+    </div>
+  </section>
+  <section id="secDisp" hidden>
+    <h2>Monitores</h2>
+    <div class="grid" id="projBtns"></div>
+    <p class="dim" id="projInfo"></p>
+    <div class="grid">
+      <button id="scOff">Apagar as telas</button><button id="scOn">Acordar as telas</button>
+    </div>
+    <div id="brBox"></div>
+  </section>
+  <section id="secSleep" hidden>
+    <h2>Timer de sono</h2>
+    <div class="card plan" id="slPlan" hidden>
+      <div id="slTxt" class="cd"></div>
+      <button id="slCancel" class="wide">Cancelar</button>
+    </div>
+    <label class="lbl" for="slSel">Parar a música em</label>
+    <select id="slSel">
+      <option value="5">5 min</option><option value="10">10 min</option><option value="15">15 min</option>
+      <option value="30" selected>30 min</option><option value="45">45 min</option><option value="60">1 h</option>
+      <option value="90">1 h 30 min</option><option value="120">2 h</option><option value="180">3 h</option><option value="240">4 h</option>
+    </select>
+    <button id="slGo" class="wide on">Programar</button>
+    <p class="dim">Nos últimos 30 segundos o volume desce até zero, a música pausa e o volume volta ao que era.</p>
+  </section>
+  <section id="secInfo" hidden>
+    <h2>Estado do PC</h2>
+    <div class="card" id="infoBox"><div><span>Lendo…</span></div></div>
+  </section>
+</main>
+
+<main id="tf" hidden>
+  <h1>Enviar</h1>
+  <h2>Área de transferência</h2>
+  <textarea id="clip" maxlength="4000" aria-label="Texto da área de transferência" placeholder="Texto"></textarea>
+  <div class="row3"><button id="clipRead">Ler do PC</button><button id="clipCopy">Copiar</button><button id="clipSend" class="on">Enviar ao PC</button></div>
+  <h2>Arquivo para o PC</h2>
+  <input type="file" id="fileIn" aria-label="Escolher o arquivo">
+  <button id="fileGo" class="wide on" disabled>Enviar arquivo</button>
+  <progress id="fileBar" max="100" value="0" hidden></progress>
+  <p id="fileMsg" role="status" class="dim"></p>
+</main>
+
+<main id="jn" hidden>
+  <h1>Janelas</h1>
+  <section id="secWin" hidden>
+    <h2>Abertas</h2>
+    <div id="winList" class="list"></div>
+    <p id="winEmpty" class="dim" hidden>Nenhuma janela aberta.</p>
+  </section>
+  <section id="secSc" hidden>
+    <h2>Atalhos</h2>
+    <div id="scList" class="list"></div>
+    <p id="scEmpty" class="dim" hidden>Nenhum atalho. Ponha atalhos (.lnk ou .url) na pasta de atalhos do PC: Configurações, "Abrir pasta de atalhos".</p>
+  </section>
+</main>
+
+<main id="ctl" hidden>
+  <h1>Controle</h1>
+  <div id="pad" aria-label="Touchpad">Toque e arraste aqui. 1 dedo move, toque clica, 2 dedos rolam, segurar e mover arrasta.</div>
+  <div class="row3"><button id="bL">Clique</button><button id="b2">Duplo</button><button id="bR">Direito</button></div>
+  <label class="lbl" for="sens">Sensibilidade do touchpad</label>
+  <select id="sens"><option value="1">Baixa</option><option value="1.6">Média</option><option value="2.6">Alta</option></select>
+  <h2>Texto</h2>
+  <div class="txtrow"><input id="txt" type="text" maxlength="1000" autocomplete="off" autocapitalize="off" aria-label="Texto para digitar no PC" placeholder="Digitar no PC"><button id="txtGo">Enviar</button></div>
+  <h2>Apresentação</h2>
+  <div class="keys" id="kSlides"></div>
+  <h2>Vídeo</h2>
+  <div class="keys" id="kVideo"></div>
+  <h2>Mídia</h2>
+  <div class="keys" id="kMedia"></div>
+  <button id="awake" class="wide" aria-pressed="false">Manter a tela ligada</button>
+  <p class="dim" id="awakeInfo">Desliga sozinho em 4 horas.</p>
+  <h2>Teclas</h2>
+  <div class="keys" id="kKeys"></div>
+</main>
+
+<main id="tl" hidden>
+  <h1>Tela</h1>
+  <p class="dim" id="tlHint">A imagem só é enviada depois que você tocar em "Mostrar a tela" e para ao tocar em "Parar", sair desta aba ou bloquear o celular.</p>
+  <button id="telaIniciar" class="wide on">Mostrar a tela</button>
+  <div id="tlView" hidden>
+    <select id="tlMon" aria-label="Tela" hidden></select>
+    <div class="row3" id="tlQ"><button data-q="eco">Econômica</button><button data-q="normal" class="on">Normal</button><button data-q="alta">Alta</button></div>
+    <div class="row3"><button id="tlFs">Tela cheia</button><button id="telaParar">Parar</button></div>
+    <div id="tlBox">
+      <div id="tlStage"><div id="tlZoom"><canvas id="tlCv" width="1" height="1"></canvas><img id="tlImg" alt="Tela do PC"></div><span id="tlDot" hidden></span></div>
+      <div id="tlBar"><button id="tlBarOut">Sair</button><button id="tlBarC1">Clique</button><button id="tlBarC3">Direito</button><button id="tlBarKb">Teclado</button><button id="tlBarQ">Normal</button></div>
+      <div id="tlKb" hidden><input id="tlTxt" type="text" maxlength="1000" autocomplete="off" autocapitalize="off" aria-label="Texto para digitar no PC" placeholder="Digitar no PC"><button id="tlTxtGo">Enviar</button></div>
+      <div id="tlRot" hidden>Gire o celular</div>
+    </div>
+    <div class="row3" id="tlClk"><button id="tlC1">Clique</button><button id="tlC2">Duplo</button><button id="tlC3">Direito</button></div>
+    <p class="dim" id="tlTap">Toque na imagem para levar o mouse até lá; depois use os botões. Em tela cheia, dois dedos aproximam e movem a imagem; toque duplo volta ao normal.</p>
+  </div>
+  <p id="tlMsg" role="status"></p>
+</main>
+
+<main id="busy" hidden>
+  <h1>Mixer de Áudio</h1>
+  <p id="busyMsg"></p>
+  <p class="dim">Tentando de novo a cada 5 segundos…</p>
+</main>
+
+<main id="gone" hidden>
+  <h1>Desconectado</h1>
+  <p id="goneMsg"></p>
+  <button id="again" class="wide on">Conectar</button>
+</main>
+
+<div id="veil"></div>
+<nav id="tabs" hidden>
+  <button data-tab="som" class="on"><svg viewBox="0 0 24 24"><path d="M4 8h9M17 8h3M4 16h3M11 16h9"/><circle cx="15" cy="8" r="2"/><circle cx="9" cy="16" r="2"/></svg><span>Som</span></button>
+  <button data-tab="pc" hidden><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg><span>PC</span></button>
+  <button data-tab="jn" hidden><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 9h18"/></svg><span>Janelas</span></button>
+  <button data-tab="ctl" hidden><svg viewBox="0 0 24 24"><rect x="7" y="3" width="10" height="18" rx="5"/><path d="M12 3v6"/></svg><span>Controle</span></button>
+  <button data-tab="tl" hidden><svg viewBox="0 0 24 24"><path d="M3 8V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6"/><path d="M3 12a8 8 0 0 1 8 8M3 16a4 4 0 0 1 4 4M3 20h.01"/></svg><span>Tela</span></button>
+  <button data-tab="tf" hidden><svg viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg><span>Enviar</span></button>
+</nav>
+<button id="fab" aria-label="Menu" hidden></button>
+<div id="fabp" style="position:fixed;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)"></div>
+
+<div id="dlg" role="dialog" aria-modal="true" hidden>
+  <div class="box"><p id="dq"></p>
+    <div class="row"><button id="dno">Cancelar</button><button id="dyes" class="on">Confirmar</button></div></div>
+</div>
+<div id="toast" role="status" hidden></div>
+
+<script>

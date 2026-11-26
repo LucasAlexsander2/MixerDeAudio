@@ -31,7 +31,8 @@ internal sealed class RemoteServer : IDisposable
     private static readonly TimeSpan PortWait = TimeSpan.FromSeconds(1); // espaço entre tentativas na porta salva (D12)
     private const int PortAttempts = 10; // 10 tentativas, uma por segundo: até 10 s
     private const int MaxOpenRequests = 32;
-    private const string PageResource = "MixerDeAudio.Web.index.html";
+    private const string NewPageResource = "MixerDeAudio.Web/app/index.html";
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> AssetETags = new(); // D5/D21: só o ETag fica na memória
     private static readonly TimeSpan HeadTimeout = TimeSpan.FromSeconds(10);
 
     private readonly AudioHub _hub;
@@ -303,6 +304,10 @@ internal sealed class RemoteServer : IDisposable
                 var ct = cts.Token;
                 if (head.Method == "GET" && path == "/")
                     await ServePageAsync(stream, ct).ConfigureAwait(false);
+                else if (head.Method == "GET" && (path == "/novo" || path == "/novo/"))
+                    await ServeNewPageAsync(stream, ct).ConfigureAwait(false);
+                else if (head.Method == "GET" && (path.StartsWith("/app/", StringComparison.Ordinal) || path.StartsWith("/fontes/", StringComparison.Ordinal)))
+                    await ServeAssetAsync(stream, head, path, ct).ConfigureAwait(false);
                 else if (head.Method == "GET" && path == "/sessao")
                     // Fase 10b, D11: só diz se o cookie é de um celular pareado; não exige o celular conectado (sem 409)
                     await WriteAsync(stream, Authenticate(head) is null ? 401 : 204, "text/plain; charset=utf-8", Array.Empty<byte>(), null, ct).ConfigureAwait(false);
@@ -367,6 +372,7 @@ internal sealed class RemoteServer : IDisposable
         101 => "Switching Protocols",
         200 => "OK",
         204 => "No Content",
+        304 => "Not Modified",
         400 => "Bad Request",
         401 => "Unauthorized",
         403 => "Forbidden",
@@ -381,14 +387,17 @@ internal sealed class RemoteServer : IDisposable
         _ => "Error",
     };
 
-    private static async Task WriteAsync(NetworkStream stream, int status, string contentType, byte[] body, string[]? extraHeaders, CancellationToken ct)
+    private static async Task WriteAsync(NetworkStream stream, int status, string contentType, byte[] body, string[]? extraHeaders, CancellationToken ct, string cacheControl = "no-store")
     {
         var sb = new StringBuilder();
         sb.Append("HTTP/1.1 ").Append(status).Append(' ').Append(Reason(status)).Append("\r\n");
-        sb.Append("Content-Type: ").Append(contentType).Append("\r\n");
-        sb.Append("Content-Length: ").Append(body.Length).Append("\r\n");
+        if (status != 304) // D6: 304 sem Content-Type e sem Content-Length
+        {
+            sb.Append("Content-Type: ").Append(contentType).Append("\r\n");
+            sb.Append("Content-Length: ").Append(body.Length).Append("\r\n");
+        }
         sb.Append("Connection: close\r\n");
-        sb.Append("Cache-Control: no-store\r\n");
+        sb.Append("Cache-Control: ").Append(cacheControl).Append("\r\n");
         sb.Append("X-Content-Type-Options: nosniff\r\n");
         sb.Append("Referrer-Policy: no-referrer\r\n");
         if (extraHeaders is not null)
@@ -403,19 +412,67 @@ internal sealed class RemoteServer : IDisposable
 
     private static async Task ServePageAsync(NetworkStream stream, CancellationToken ct)
     {
-        byte[] html;
-        using (var res = Assembly.GetExecutingAssembly().GetManifestResourceStream(PageResource))
+        // D7: a página antiga é a concatenação das partes, na ordem de WebAssets.OldPageParts
+        using var ms = new MemoryStream();
+        var asm = Assembly.GetExecutingAssembly();
+        foreach (var part in WebAssets.OldPageParts)
         {
+            using var res = asm.GetManifestResourceStream(WebAssets.OldPagePrefix + part);
             if (res is null)
             {
                 await WriteAsync(stream, 404, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes("pagina indisponivel"), null, ct).ConfigureAwait(false);
                 return;
             }
-            using var ms = new MemoryStream();
             await res.CopyToAsync(ms, ct).ConfigureAwait(false);
-            html = ms.ToArray();
         }
-        await WriteAsync(stream, 200, "text/html; charset=utf-8", html, null, ct).ConfigureAwait(false);
+        await WriteAsync(stream, 200, "text/html; charset=utf-8", ms.ToArray(), null, ct).ConfigureAwait(false);
+    }
+
+    // ---- GET /novo (Fase 14, D1) ----
+
+    private static async Task ServeNewPageAsync(NetworkStream stream, CancellationToken ct)
+    {
+        var bytes = await ReadResourceAsync(NewPageResource, ct).ConfigureAwait(false);
+        if (bytes is null)
+        {
+            await WriteAsync(stream, 404, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes("pagina indisponivel"), null, ct).ConfigureAwait(false);
+            return;
+        }
+        await WriteAsync(stream, 200, "text/html; charset=utf-8", bytes, null, ct).ConfigureAwait(false);
+    }
+
+    // ---- GET /app/* e /fontes/* (Fase 14, D1, D5, D6) ----
+
+    private static async Task ServeAssetAsync(NetworkStream stream, HttpHead head, string path, CancellationToken ct)
+    {
+        var asset = WebAssets.Resolve(path);
+        var bytes = asset is null ? null : await ReadResourceAsync(asset.Resource, ct).ConfigureAwait(false);
+        if (asset is null || bytes is null)
+        {
+            await WriteAsync(stream, 404, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes("nao encontrado"), null, ct).ConfigureAwait(false);
+            return;
+        }
+        if (!AssetETags.TryGetValue(asset.Resource, out var etag))
+        {
+            etag = WebAssets.ETagFor(bytes);
+            AssetETags[asset.Resource] = etag;
+        }
+        var extra = new[] { "ETag: " + etag };
+        if (asset.CacheControl == WebAssets.NoCache && WebAssets.IfNoneMatchMatches(head.Header("If-None-Match"), etag))
+        {
+            await WriteAsync(stream, 304, asset.ContentType, Array.Empty<byte>(), extra, ct, asset.CacheControl).ConfigureAwait(false);
+            return;
+        }
+        await WriteAsync(stream, 200, asset.ContentType, bytes, extra, ct, asset.CacheControl).ConfigureAwait(false);
+    }
+
+    private static async Task<byte[]?> ReadResourceAsync(string name, CancellationToken ct)
+    {
+        using var res = Assembly.GetExecutingAssembly().GetManifestResourceStream(name);
+        if (res is null) return null;
+        using var ms = new MemoryStream();
+        await res.CopyToAsync(ms, ct).ConfigureAwait(false);
+        return ms.ToArray();
     }
 
     // ---- POST /parear (D6, D7) ----

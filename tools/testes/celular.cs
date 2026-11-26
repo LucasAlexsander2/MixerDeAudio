@@ -9,6 +9,9 @@
 //   celular.exe ciclos <porta> <chave> <n>           -> conecta e desconecta n vezes (espera o estado a cada conexão); imprime "ciclos=<ok>"
 //   celular.exe get <porta> <caminho> [chave|-] [origin|-]
 //                                                    -> GET cru; imprime só o código HTTP. Em /ws manda os cabeçalhos de upgrade.
+//   celular.exe cabecalhos <porta> <caminho> [etag|-]
+//                                                    -> (Fase 14) GET sem cookie (paginas e arquivos estaticos) com If-None-Match opcional; le a resposta ate fechar e imprime
+//                                                       status|content-type|cache-control|etag|sha256-do-corpo|bytes|sha256-do-corpo-sem-CR (cabecalho ausente = vazio)
 //   celular.exe ferramenta <porta> <chave> <json>    -> (Fase 9) conecta, confere que o estado traz "teste":true (o app esta com --teste-pc) e so
 //                                                       entao envia o comando de ferramenta (energia, energiaCancelar, projecao, telas, atualizar,
 //                                                       desconectar); sem "teste":true RECUSA (codigo 3) sem enviar nada
@@ -75,6 +78,8 @@ try
             Console.WriteLine($"ciclos={ok}");
             return ok == n ? 0 : 1;
         }
+        case "cabecalhos" when args.Length >= 3:
+            return await Cabecalhos(int.Parse(args[1]), args[2], args.Length > 3 ? args[3] : null);
         case "get" when args.Length >= 3:
             return await Get(int.Parse(args[1]), args[2], args.Length > 3 && args[3] != "-" ? args[3] : null, args.Length > 4 && args[4] != "-" ? args[4] : null);
         case "ferramenta" when args.Length >= 4:
@@ -167,7 +172,7 @@ static async Task<int> Reconectar(int porta, string chave, int segundos, string?
 
 static int Uso()
 {
-    Console.Error.WriteLine("uso: parear <porta> <codigo> | estado <porta> <chave> | enviar <porta> <chave> <json> | ciclos <porta> <chave> <n> | get <porta> <caminho> [chave|-] [origin|-] | segurar <porta> <chave> <segundos> [arquivo-parar] | reconectar <porta> <chave> <segundos> [arquivo-parar] | ferramenta <porta> <chave> <json> | brilhorajada <porta> <chave> <tela> <de> <ate> | segundo <porta> <chave> | tela <porta> <chave|-> <q:mon:w:seg:ok|semok;...> | arquivo <porta> <chave> <caminho> [nome] | info <porta> <chave> <seg-ligado> <seg-depois>");
+    Console.Error.WriteLine("uso: parear <porta> <codigo> | estado <porta> <chave> | enviar <porta> <chave> <json> | ciclos <porta> <chave> <n> | get <porta> <caminho> [chave|-] [origin|-] | cabecalhos <porta> <caminho> [etag|-] | segurar <porta> <chave> <segundos> [arquivo-parar] | reconectar <porta> <chave> <segundos> [arquivo-parar] | ferramenta <porta> <chave> <json> | brilhorajada <porta> <chave> <tela> <de> <ate> | segundo <porta> <chave> | tela <porta> <chave|-> <q:mon:w:seg:ok|semok;...> | arquivo <porta> <chave> <caminho> [nome] | info <porta> <chave> <seg-ligado> <seg-depois>");
     return 2;
 }
 
@@ -313,6 +318,37 @@ static async Task<int> Get(int porta, string caminho, string? chave, string? ori
     var linha = Encoding.ASCII.GetString(buffer, 0, n).Split("\r\n")[0];
     var partes = linha.Split(' ');
     Console.WriteLine(partes.Length >= 2 ? partes[1] : "0");
+    return 0;
+}
+
+static async Task<int> Cabecalhos(int porta, string caminho, string? etag)
+{
+    using var tcp = new TcpClient();
+    await tcp.ConnectAsync(Host, porta);
+    var stream = tcp.GetStream();
+    var sb = new StringBuilder();
+    sb.Append($"GET {caminho} HTTP/1.1\r\nHost: {Host}:{porta}\r\nConnection: close\r\n");
+    if (!string.IsNullOrEmpty(etag) && etag != "-") sb.Append($"If-None-Match: {etag}\r\n");
+    sb.Append("\r\n");
+    await stream.WriteAsync(Encoding.ASCII.GetBytes(sb.ToString()));
+    using var ms = new MemoryStream();
+    using var cts = new CancellationTokenSource(10000);
+    var buf = new byte[16384];
+    int n;
+    while ((n = await stream.ReadAsync(buf, cts.Token)) > 0) ms.Write(buf, 0, n);
+    var tudo = ms.ToArray();
+    var fim = -1;
+    for (var i = 0; i + 3 < tudo.Length; i++)
+        if (tudo[i] == 13 && tudo[i + 1] == 10 && tudo[i + 2] == 13 && tudo[i + 3] == 10) { fim = i; break; }
+    if (fim < 0) { Console.WriteLine("0||||||"); return 0; }
+    var linhas = Encoding.ASCII.GetString(tudo, 0, fim).Split("\r\n");
+    var partes = linhas[0].Split(' ');
+    var status = partes.Length >= 2 ? partes[1] : "0";
+    string H(string nome) => linhas.Skip(1).Select(l => l.Split(':', 2)).Where(p => p.Length == 2 && p[0].Equals(nome, StringComparison.OrdinalIgnoreCase)).Select(p => p[1].Trim()).FirstOrDefault() ?? "";
+    var corpo = tudo.AsSpan(fim + 4).ToArray();
+    var sha = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(corpo)).ToLowerInvariant();
+    var semCr = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(corpo.Where(b => b != 13).ToArray())).ToLowerInvariant();
+    Console.WriteLine($"{status}|{H("Content-Type")}|{H("Cache-Control")}|{H("ETag")}|{sha}|{corpo.Length}|{semCr}");
     return 0;
 }
 
