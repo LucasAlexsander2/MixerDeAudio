@@ -1,6 +1,6 @@
 # Fase 14 — Base do novo front (Controladora PC)
 
-Status: concluída em 26/11/2026. A 1.3.0 foi publicada; os ajustes A1 a A5 vão na versão do fim da Fase 15 (decisão do usuário: publicar só no fim), e o reteste no iPhone (A2 e U1 a U5) fica junto com o da Fase 15.
+Status: concluída em 26/11/2026. A 1.3.0 foi publicada; os ajustes A1 a A5 vão na versão do fim da Fase 15 (decisão do usuário: publicar só no fim), e o reteste no iPhone foi aprovado junto com o da Fase 15 (1.4.0, 26/11/2026).
 
 ## 1. Objetivo
 

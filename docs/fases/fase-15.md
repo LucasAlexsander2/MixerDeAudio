@@ -1,6 +1,6 @@
 # Fase 15 — Telas no layout novo (Controladora PC)
 
-Status: aprovada pelo usuário (26/11/2026), com as recomendações de P1 a P4.
+Status: concluída em 26/11/2026. Versão 1.4.0 publicada e aprovada no teste do usuário no iPhone.
 
 ## 1. Objetivo
 
@@ -173,6 +173,10 @@ Os roteiros usam `BackupConfig` e `RestoreConfig`, reabrem o app do usuário e n
 - Roteiros (app publicado, um por vez): `roteiro-f14` 14.1 a 14.4 OK (página antiga idêntica, 64 arquivos servidos); `roteiro-f15a` 15a.1 OK (`gpu` em 3 de 4 mensagens, nada depois do `off`); `roteiro-f15c` 15c.1, 15c.1b, 15c.2 e 15c.3 OK. Config e registro restaurados sem diferenças em todos.
 - Navegador embutido com `servidor-teste.ps1` (ganhou `-Grupos`, todos ligados por padrão): pareamento pelo `/novo`; as dez áreas abrem com dados reais (apps com ícones e músicas, janelas, monitores, estado do PC, imagem da tela); Bloquear pede confirmação e chega ao PC de teste (`teste-pc: energia bloquear`); GPU aparece no Início e no Estado do PC. Config devolvido sem diferenças.
 - Não conferido no PC: o visual no iPhone, gestos reais (pinça, deitado, tela cheia), o envio de arquivo de verdade e as teclas no PC real (o `--teste-pc` só registra).
+
+### Teste do usuário (iPhone, 1.4.0, 26/11/2026)
+
+- U1 a U7: tudo funcionou, inclusive o reteste da Fase 14 (título sem borrão no app aberto pela Tela de Início e `/` como sempre).
 
 ## 8. Pendências
 
