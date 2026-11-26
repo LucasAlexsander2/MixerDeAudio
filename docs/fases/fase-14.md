@@ -201,7 +201,7 @@ Usa `BackupConfig` e `RestoreConfig`, reabre o app do usuário no fim e nunca de
   - Os componentes trocam de lado só pelo CSS, sem mudar a interface. Com a mão esquerda: no cartão de app, o avatar vai para a direita e a saída para a esquerda; a faixa de rolagem do touchpad passa para a esquerda; o painel de vidro deitado e a bolha dele vão para baixo à esquerda.
   - Tela "Opções" (`telas/opcoes.js`), aberta por um chip com engrenagem no topo do Início, com o grupo de chips "Mão usada". A Galeria ganha o mesmo grupo para conferir.
 - Conferência do A5 (Opus, navegador embutido): com a mão esquerda, o cartão de app espelha (a saída à esquerda, o avatar à direita e a música alinhada sob o nome, corrigido na conferência), a faixa do touchpad vai para a esquerda e a escolha fica salva; a tela Opções abre pelo chip do Início. Testes 938/938.
-- Conferência (Opus, navegador embutido): o arrasto para a direita acompanha o dedo e sai para a direita; o toque a menos de 24 px da borda esquerda é ignorado; um aviso aberto bloqueia o gesto; o "Aplicar" tem fundo `--accent` e texto `--accent-ink`. Testes 937/937. Entrega: versão 1.3.1 com uma entrada nas Novidades.
+- Conferência (Opus, navegador embutido): o arrasto para a direita acompanha o dedo e sai para a direita; o toque a menos de 24 px da borda esquerda é ignorado; um aviso aberto bloqueia o gesto; o "Aplicar" tem fundo `--accent` e texto `--accent-ink`. Testes 937/937. Entrega: na versão do fim da Fase 15 (decisão do usuário em 26/11/2026).
 
 ## 8. Pendências
 
