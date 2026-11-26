@@ -1,0 +1,11 @@
+/* Tela Janelas (Fase 15d). Só tokens. */
+.janelas-lista{display:flex;flex-direction:column;gap:var(--espaco);margin-top:6px}
+.janelas-vazio{margin-top:18px;text-align:center}
+.janelas-cartao{display:flex;flex-direction:column;gap:12px}
+.janelas-cartao.minimizada .janelas-topo{opacity:.65}
+.janelas-topo{display:flex;align-items:center;gap:12px;min-width:0}
+.janelas-ico{width:40px;height:40px;flex:none;border-radius:10px;background:var(--surface-2);border:1px solid var(--line);display:grid;place-items:center;font-weight:700;font-size:16px;object-fit:contain}
+.janelas-textos{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
+.janelas-nome{font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.janelas-sub{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.janelas-cartao .linha-botoes .botao{padding:0 8px;font-size:13px}
