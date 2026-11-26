@@ -9,7 +9,8 @@
 # %TEMP%\mixer-check\backup-config (config-AAAAMMDD-HHMMSS-mmm.json).
 # O publicado\ precisa estar atualizado: dotnet publish MixerDeAudio\MixerDeAudio.csproj -c Release -p:Platform=x64 -r win-x64 --self-contained -o publicado
 # (o script confere e recusa se algum arquivo de Remote\Web ou .cs for mais novo que o publicado\MixerDeAudio.dll; -SemConferirPublicado ignora).
-param([string]$Codigo = '123456', [double]$LimiteHoras = 12, [switch]$SemConferirPublicado)
+param([string]$Codigo = '123456', [double]$LimiteHoras = 12, [switch]$SemConferirPublicado,
+      [string[]]$Grupos = @('energia', 'monitores', 'entrada', 'tela', 'janelas', 'atalhos', 'transferencia', 'estado'))
 . "$PSScriptRoot\lib.ps1"
 $ErrorActionPreference = 'Stop'
 $parar = "$script:out\parar-servidor.txt"
@@ -45,7 +46,7 @@ try {
   "backup guardado: config.json existia=$($script:backup.ConfigExiste); copia em $script:bkDir"
   Set-Content $ativo "iniciado em $(Get-Date -Format s); copia do config real em $script:bkDir" -Encoding utf8
 
-  $porta = LigarCelularTeste $Codigo
+  $porta = LigarCelularTeste $Codigo $Grupos
   if (-not $porta) { throw 'o servidor do celular nao ligou (sem linha no log)' }
   AssertModoTestePc
   "PORTA=$porta"

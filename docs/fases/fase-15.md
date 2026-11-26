@@ -158,6 +158,24 @@ Os roteiros usam `BackupConfig` e `RestoreConfig`, reabrem o app do usuário e n
 - `roteiro-f14.ps1` (depois de publicar): 14.1 a 14.4 OK, config e registro iguais, app do usuário reaberto.
 - Desvios: `aoAbrir` em `conexao.js` (nome do "aviso de reconexão"); o ctx traz `preferencias` com `lerMao`, `definirMao`, `aoMudarMao`, `ler`, `gravar`; `ctx.toast(texto, ms)` é um invólucro de `toast.mostrar`.
 
+### Partes 15a a 15d — Sonnet, em paralelo (worktrees), 26/11/2026
+
+- 15a (`0d28d53`): Início (favoritos na faixa larga, estado rápido com CPU/GPU/RAM, Todas as funções, Desconectar), Opções (mão e favoritos), Som; GPU por PDH (`Pc/GpuReader.Native.cs`, `PcInfoRules.GpuPercent`), `gpu` no `info`. Desvios: a 1ª leitura da GPU vem sem `gpu` (o contador precisa de duas amostras); sem linha de log quando falta a GPU; o ícone do app é um `<img>` posto no avatar do cartão por fora do componente.
+- 15b (`cb01491`): Energia (4 ações com confirmação, agendamento e Cancelar), Monitores (projeção, apagar/acordar, brilho por tela, manter ligada), Timer de sono e Estado do PC. Desvios: o "No fim" do protótipo não entrou no Timer de sono (o PC só tem um comportamento); "Manter a tela ligada" aparece com o grupo `entrada`.
+- 15c (`288c6cb`): Controle (Touchpad, Teclado com modificadores presos, Apresentação, Vídeo, Mídia) e Tela do PC (touchpad dentro, Toque direto que move e clica, ponteiro 1×–3×, zoom seguindo o ponteiro, deitado); `InputRules.TryCombo` (recusa Ctrl+Alt+Delete e combinações fora da lista), `cur` e `p` no `/tela/ws`. Desvios: a tela transmite ao abrir (sem "Mostrar a tela"); Mídia sem o cartão da música; Vídeo com Vol+/Vol− em vez de barra.
+- 15d (`b824978`): Janelas (lista com ícones, Frente, Minimizar, Fechar com confirmação), Atalhos, Enviar (área de transferência nos dois sentidos, fila de arquivos com progresso e Cancelar).
+- Os worktrees nasceram do commit enviado (`f3058b7`), sem a 15.0: a 15b e a 15c fizeram `merge --ff-only main`; a 15a e a 15d copiaram a base e commitaram só os próprios arquivos.
+
+### Junção e conferência (Opus, 26/11/2026)
+
+- Junção no `main` local: 15b (avanço direto), 15d, 15a (conflitos só nos arquivos provisórios das próprias áreas, resolvidos com a versão da parte) e 15c (sem conflito; `RemoteProtocol.cs` com os dois trechos). Build Release sem avisos; testes 1082/1082.
+- Código do PC: o canal da tela só muda com `cur`/`p`, o texto do ponteiro só vai antes de um quadro enviado; a GPU libera o buffer e fecha a consulta PDH; `tecla` com `mods` passa por `TryCombo`.
+- Roteiros (app publicado, um por vez): `roteiro-f14` 14.1 a 14.4 OK (página antiga idêntica, 64 arquivos servidos); `roteiro-f15a` 15a.1 OK (`gpu` em 3 de 4 mensagens, nada depois do `off`); `roteiro-f15c` 15c.1, 15c.1b, 15c.2 e 15c.3 OK. Config e registro restaurados sem diferenças em todos.
+- Navegador embutido com `servidor-teste.ps1` (ganhou `-Grupos`, todos ligados por padrão): pareamento pelo `/novo`; as dez áreas abrem com dados reais (apps com ícones e músicas, janelas, monitores, estado do PC, imagem da tela); Bloquear pede confirmação e chega ao PC de teste (`teste-pc: energia bloquear`); GPU aparece no Início e no Estado do PC. Config devolvido sem diferenças.
+- Não conferido no PC: o visual no iPhone, gestos reais (pinça, deitado, tela cheia), o envio de arquivo de verdade e as teclas no PC real (o `--teste-pc` só registra).
+
 ## 8. Pendências
 
-(nenhuma ainda)
+- Ícones que faltaram: ponteiro (a 15c usa chip de texto).
+- Fase 16 (Segurança) pode começar: a 15 já está junta.
+- `.claude/worktrees/` (cópias dos agentes) fica fora do git; apagar os worktrees depois da entrega.
