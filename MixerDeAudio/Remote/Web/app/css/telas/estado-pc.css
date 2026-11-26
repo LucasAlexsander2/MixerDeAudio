@@ -1,1 +1,6 @@
-/* Estilos da tela Estado do PC (parte 15b); vazio na Fase 15.0. */
+/* Tela Estado do PC (Fase 15b). Só tokens. */
+.estado-lista{display:flex;flex-direction:column;gap:var(--espaco);margin-top:2px}
+.estado-dupla{display:grid;grid-template-columns:1fr 1fr;gap:var(--espaco)}
+.estado-grande{font-size:28px;margin-top:2px}
+.estado-valor{font-weight:600;margin-top:4px}
+.estado-extra{margin-top:4px}

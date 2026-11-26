@@ -1,1 +1,6 @@
-/* Estilos da tela Energia (parte 15b); vazio na Fase 15.0. */
+/* Tela Energia (Fase 15b). Só tokens. */
+.energia-grade{display:grid;grid-template-columns:1fr 1fr;gap:var(--espaco);margin-top:4px}
+.energia-agendar{margin-top:14px;width:100%}
+.energia-plano{margin-top:14px;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.energia-plano .botao{flex:none}
+.energia-contagem{font-size:18px;margin-top:2px;white-space:nowrap}
