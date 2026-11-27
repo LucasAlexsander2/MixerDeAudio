@@ -1,6 +1,6 @@
 # Fase 16 — Segurança (Controladora PC)
 
-Status: aprovada pelo usuário (26/11/2026), com as recomendações de P1 a P8.
+Status: concluída em 27/11/2026. Versão 1.5.0 publicada e aprovada no teste do usuário (U1 a U6).
 
 ## 1. Objetivo
 
@@ -175,6 +175,10 @@ Os roteiros usam `BackupConfig` e `RestoreConfig`, reabrem o app do usuário e n
 - Configurações, pela UI Automation: a lista mostra "iPhone · último uso há 2 h" e "Android · último uso há 12 dias", cada um com Esquecer, e o aviso do limite e da validade.
 - Não conferido no PC: os ícones da bandeja com o ponto, os balões, a janelinha de confirmação de um pareamento real (só aparece fora do `--celular-local`) e a migração da DPAPI no config real do usuário. Ficam para o teste do usuário (U1 a U6).
 - Testes 1213/1213; build sem avisos. Entrega: versão 1.5.0 e Novidades.
+
+### Teste do usuário (1.5.0, 27/11/2026)
+
+- U1 a U6: tudo funcionou.
 
 ## 8. Pendências
 
