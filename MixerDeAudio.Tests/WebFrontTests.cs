@@ -95,7 +95,7 @@ public class WebFrontTests
         var root = doc.RootElement;
         Assert.Equal("Controladora PC", root.GetProperty("name").GetString());
         Assert.Equal("Controladora", root.GetProperty("short_name").GetString());
-        Assert.Equal("/novo", root.GetProperty("start_url").GetString());
+        Assert.Equal("/", root.GetProperty("start_url").GetString()); // Fase 17, D4
         Assert.Equal("/", root.GetProperty("scope").GetString());
         Assert.Equal("standalone", root.GetProperty("display").GetString());
         Assert.Equal("#0f1218", root.GetProperty("background_color").GetString());
@@ -278,18 +278,52 @@ public class WebFrontTests
         Assert.All(citados, c => Assert.True(existentes.Contains(c), "icone inexistente: " + c));
     }
 
-    [Fact]
-    public void Galeria_UsaTodosOsComponentes_EAbreSemOPc()
+    // Fase 17, D3: os 29 tipos de mensagem que a página antiga mandava ao PC (lista fixa, congelada do levantamento da fase)
+    private static readonly string[] TiposDaPaginaAntiga =
     {
-        var galeria = File.ReadAllText(Path.Combine(AppDir(), "js", "telas", "galeria.js"));
-        // toast e dica chegam prontos de app.js; o resto a galeria cria
-        foreach (var (_, funcoes) in ComponentesD23)
-            foreach (var f in funcoes.Where(f => f != "criarToast" && f != "criarDica"))
-                Assert.Contains(f + "(", galeria);
+        "acordado", "assinar", "atalho", "atualizar", "botao", "brilho", "clipGravar", "clipLer", "clique", "desconectar",
+        "energia", "energiaCancelar", "geral", "geralMudo", "janela", "janelas", "midia", "mouse", "mouseAbs", "mudo",
+        "padrao", "projecao", "rolar", "rota", "sono", "tecla", "telas", "texto", "volume",
+    };
+
+    [Fact]
+    public void NadaSePerdeu_OsTiposDaPaginaAntigaApareceEmUmModuloDoNovo()
+    {
+        Assert.Equal(29, TiposDaPaginaAntiga.Distinct().Count());
+        var jsDir = Path.Combine(AppDir(), "js");
+        var fontes = Directory.EnumerateFiles(jsDir, "*.js", SearchOption.AllDirectories)
+            .Where(f => Path.GetFileName(f) != "galeria.js")
+            .Select(File.ReadAllText).ToList();
+        foreach (var tipo in TiposDaPaginaAntiga)
+        {
+            var re = new Regex(@"\bt\s*:\s*['""]" + tipo + @"['""]");
+            Assert.True(fontes.Any(c => re.IsMatch(c)), "tipo sem uso no novo front: " + tipo);
+        }
+    }
+
+    [Fact]
+    public void Galeria_SaiuDoApp_SemSobrasNemReferenciasAAntigo()
+    {
+        // Fase 17, D6: no lugar do teste da Galeria
         var app = File.ReadAllText(Path.Combine(AppDir(), "js", "app.js"));
-        Assert.Contains("'#galeria'", app);
-        Assert.Contains("registrar('galeria'", app);
-        Assert.Matches(@"else iniciarConexao\(", app); // no modo galeria a conexao nem comeca
+        Assert.DoesNotContain("galeria", app, StringComparison.OrdinalIgnoreCase);
+        Assert.Matches(@"(?m)^iniciarConexao\(", app);
+        foreach (var f in Files(".js", ".css", ".html", ".webmanifest", ".md"))
+        {
+            var c = File.ReadAllText(f);
+            Assert.False(c.Contains("galeria.js") || c.Contains("#galeria") || c.Contains("/novo"), "referencia a Galeria ou /novo em " + Rel(f));
+            Assert.DoesNotContain("antigo/", c);
+        }
+        Assert.DoesNotContain("galeria", File.ReadAllText(Path.Combine(AppDir(), "css", "componentes.css")), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Csp_ScriptsSemUnsafeInline_IndexSemScriptNemEstiloNoHtml()
+    {
+        var html = File.ReadAllText(Path.Combine(AppDir(), "index.html"));
+        Assert.DoesNotMatch(@"<script(?![^>]*\bsrc=)[^>]*>\s*\S", html);
+        Assert.DoesNotMatch(@"\son[a-z]+\s*=", html);
+        Assert.DoesNotContain("javascript:", html);
     }
 
     [Fact]

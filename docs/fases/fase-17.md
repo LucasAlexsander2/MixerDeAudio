@@ -1,6 +1,6 @@
 # Fase 17 — Troca e versão 2.0.0 (Controladora PC)
 
-Status: análise pronta, aguardando aprovação do usuário (27/11/2026).
+Status: aprovada pelo usuário (27/11/2026), com as recomendações de P1 a P5.
 
 ## 1. Objetivo
 
@@ -98,7 +98,25 @@ A bateria inteira (1213 hoje) passa. Testes novos ou atualizados:
 
 ## 7. Resultados
 
-(preenchido na implementação e na conferência)
+(implementação em 27/11/2026; roteiros e conferência pelo Opus)
+
+- **Servidor (D1, D2, D5, D8):** `RemoteServer.cs` serve `app/index.html` em `/` (CSP e `no-store`); `/novo` e `/novo/` dão 301 com `Location: /`, sem corpo, e `Reason` ganhou `301`. O ícone passa `private, max-age=3600` no parâmetro de cache (um só `Cache-Control`). `WebAssets.cs` perdeu `OldPageParts` e `OldPagePrefix`. `RemoteRules.BuildCsp` sem `'unsafe-inline'` no `script-src`.
+- **Celular (D2, D4, D6):** pasta `Remote/Web/antigo/` apagada (18 partes); `telas/galeria.js` apagado, registro e modo `#galeria` tirados do `app.js`, CSS `.galeria*` tirado do `componentes.css`; manifesto com `start_url` `/`; comentários e LEIAMEs sem `antigo/` nem Galeria.
+- **Nome (D7):** "Controladora PC" em `App.xaml.cs` (balões e janelinha), `FlyoutWindow.xaml(.cs)`, `PcPromptWindow.xaml(.cs)` ("Pergunta da Controladora PC"), `PcController.cs`, `TrayIconService.cs` e `--packTitle` do `release.yml`. O `--releaseName` do `release.yml` ficou como estava ("Mixer de Áudio <versão>"), porque o pedido era só o `packTitle`.
+- **Versão (D9):** `Version` 2.0.0 no csproj; `Novidades.json` com a 2.0.0 (4 itens, sem aspas dentro do texto, parse conferido: 7 versões).
+- **Testes novos:** `NadaSePerdeu_OsTiposDaPaginaAntigaApareceEmUmModuloDoNovo` (D3, lista fixa de 29; rodou com a pasta antiga presente e de novo depois de apagar, passou nas duas), `Rotas_RaizServeONovoENovoDa301ParaRaiz`, `Icone_UsaUmUnicoCacheControlDe1Hora`, `PaginaAntiga_NaoExisteMais`, `Galeria_SaiuDoApp_SemSobrasNemReferenciasAAntigo`, `Csp_ScriptsSemUnsafeInline_IndexSemScriptNemEstiloNoHtml`.
+- **Testes trocados ou removidos:** `PaginaAntiga_Partes_Concatenadas_Tem_O_Hash_Congelado` e `PaginaAntiga_Lista_Igual_A_Pasta` (removidos: a pasta e o hash saíram; a garantia agora é a D3 e o `PaginaAntiga_NaoExisteMais`); `Galeria_UsaTodosOsComponentes_EAbreSemOPc` (trocado pelo `Galeria_SaiuDoApp...`, porque a Galeria saiu); `PaginaDoCelular_TemMenosDe64KbESemUrlExterna` (trocado: confere o `app/index.html` e o CSS, sem URL externa e menos de 64 KB); `Manifesto...` (esperado `/`); `Csp_TemFrameAncestors...` (esperado `script-src 'self'` sem `unsafe-inline`). Os `InlineData("/antigo/...")` do `Resolve_Recusa_Caminhos_Invalidos` ficaram (continuam recusados).
+- **Roteiros:** `roteiro-f17.ps1` novo (17.1 página e 301; 17.2 ícone com um só `Cache-Control`); `roteiro-f14` com o 14.1 marcado como substituído pelo 17.1 e o 14.2 esperando 301 no `/novo`; `roteiro-f16` com a CSP nova e `/novo` = 301 (16a.1 espera 200, 301, 204, 101; 16a.3 só confere status e X-Frame-Options no `/novo`). `celular.cs` (`cabecalhos`) ganhou o cookie como 4º argumento e os campos Location, quantidade de `Cache-Control` e "cita app.js"; `servidor-teste.ps1` e o `README.md` de `tools/testes` atualizados.
+- **Build:** Release x64, 0 avisos e 0 erros. **Testes:** 1216 aprovados, 0 falhas (1213 - 3 removidos/trocados + 6 novos). `node --check` em todos os `.js` do `app/`: ok. Os três roteiros foram só verificados na sintaxe (parser do PowerShell); nenhum foi executado.
+- **Desvios:** os testes de rota e de cache do ícone leem o código-fonte do `RemoteServer.cs` (não há teste de servidor em memória); a prova real fica nos casos 17.1 e 17.2. O `release.yml` mantém "Mixer de Áudio" no `--releaseName`.
+
+### Conferência (Opus, 27/11/2026)
+
+- `release.yml`: além do `--packTitle`, o `--releaseName` passou a "Controladora PC <versão>".
+- Roteiros com o app publicado: `roteiro-f17` 17.1 e 17.2 OK, `roteiro-f14` (14.2 a 14.4), `roteiro-f16 -Parte a` e `-Parte b`, `roteiro-f15a` e `roteiro-f15c` OK. Config restaurado em todos.
+- O 17.2 foi corrigido na conferência: o PC só serve ícones com um celular conectado (hub ativo), então o caso segura uma conexão durante o pedido e usa o ícone de qualquer app do estado (o tocador de teste não tem ícone). Um caminho com FF no lugar de `` também foi corrigido.
+- Navegador embutido com o `servidor-teste.ps1`: `/#c=123456` pareou sozinho e abriu o Início; Som e Janelas com ícones, Tela do PC com imagem; nenhum bloqueio da CSP no console.
+- Testes 1216/1216; build sem avisos. Entrega: versão 2.0.0.
 
 ## 8. Pendências
 

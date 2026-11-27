@@ -1,5 +1,14 @@
 [
   {
+    "versao": "2.0.0",
+    "itens": [
+      { "icone": "E8EA", "titulo": "A Controladora PC chegou", "texto": "O layout novo agora é a página do celular: é só abrir o endereço de sempre. A página antiga saiu, e o nome do app passa a ser Controladora PC." },
+      { "icone": "E713", "titulo": "Feita para as duas mãos", "texto": "Em Opções, escolha a mão usada; os controles passam para o lado dela. Voltar arrastando funciona para os dois lados." },
+      { "icone": "E7F4", "titulo": "Tela do PC com touchpad", "texto": "A imagem do PC vem com o touchpad junto, o ponteiro pode ficar maior (até 3×) e o zoom acompanha o ponteiro." },
+      { "icone": "E72E", "titulo": "Mais segurança", "texto": "O pareamento pede a sua confirmação no PC, o código muda a cada pareamento e a página do celular roda com regras mais rígidas." }
+    ]
+  },
+  {
     "versao": "1.5.0",
     "itens": [
       { "icone": "E72E", "titulo": "Pareamento mais seguro", "texto": "Para parear um celular novo, as Configurações precisam estar abertas e o PC pergunta se você permite. O código muda depois de cada pareamento, e tentativas erradas bloqueiam por cada vez mais tempo." },

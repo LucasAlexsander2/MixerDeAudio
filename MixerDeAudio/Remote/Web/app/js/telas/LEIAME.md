@@ -20,7 +20,7 @@ O Início e o Opções (`inicio.js`, `opcoes.js`, `css/telas/inicio.css`) são d
 ## Regras (D8 a D10)
 
 - **D8, arquivos fechados:** nenhuma parte muda `componentes/`, `pilha.js`, `conexao.js`, `estado.js`, `assinaturas.js`, `app.js` nem `index.html`. Se faltar algo, anote como pendência na seção 8 do documento da fase e siga. Cada parte escreve só nos próprios módulos, no próprio CSS (`css/telas/<área>.css`) e nos próprios testes.
-- **D9, visual e funções:** textos e visual do protótipo (`docs/prototipo/controladora.html`), montados com os componentes (`componentes/LEIAME.md`; veja todos em `/novo#galeria`). Funções e mensagens para o PC: as da parte antiga correspondente (`antigo/*.js`), para nada se perder. Cores só por tokens (`css/tokens.css`). Ícones só os de `icones.js` (se faltar um, use o mais próximo e anote).
+- **D9, visual e funções:** textos e visual do protótipo (`docs/prototipo/controladora.html`), montados com os componentes (`componentes/LEIAME.md`). Funções e mensagens para o PC: as da parte antiga correspondente (página antiga, hoje só no histórico do git), para nada se perder. Cores só por tokens (`css/tokens.css`). Ícones só os de `icones.js` (se faltar um, use o mais próximo e anote).
 - **D10, segurança e mão:** ação perigosa (desligar, reiniciar, fechar janela...) pede confirmação (`criarAviso`, com `container: ctx.camadas`); a mão usada é respeitada (a classe `mao-esquerda` no `<html>` já inverte o layout; use `ctx.preferencias.aoMudarMao` se precisar reagir); elementos com arrasto próprio levam `data-sem-gesto` para não disparar o gesto de voltar.
 - Só mande mensagens (`t:`) que o PC aceita (lista do `RemoteSession`).
 - Uma tela só assina (`ctx.assinar`) enquanto está no topo e solta tudo em `aoTopo(false)` e em `destruir()`.
@@ -38,7 +38,7 @@ O Início e o Opções (`inicio.js`, `opcoes.js`, `css/telas/inicio.css`) são d
 | `ctx.assinar(grupo)` | `const soltar = assinar('info')` | Liga o envio periódico de um grupo (`info`, `janelas`...), ver a seção das assinaturas. Devolve `soltar()`. |
 | `ctx.toast(texto, ms)` | `toast('Enviado', 1800)` | Mostra um aviso curto na parte de baixo. `ms` é opcional (padrão 1800). Não devolve nada. |
 | `ctx.camadas` | `HTMLElement` | Contêiner das camadas por cima da pilha: use como `container` de `criarAviso`, `criarFolha` e semelhantes. |
-| `ctx.abrir(nome)` | `abrir('estado')` | Abre outra tela registrada (nome de `AREAS`, `opcoes`, `galeria`). Não devolve nada. |
+| `ctx.abrir(nome)` | `abrir('estado')` | Abre outra tela registrada (nome de `AREAS`, `opcoes`). Não devolve nada. |
 | `ctx.voltar()` | `voltar()` | Volta uma tela (equivale ao voltar do navegador). Use no `aoVoltar` do cabeçalho. |
 | `ctx.preferencias` | objeto, ver abaixo | Mão usada e preferências próprias de cada área. |
 

@@ -49,7 +49,7 @@ public sealed partial class PcPromptWindow : Window
         SecondaryButton.Content = secondary;
         if (string.IsNullOrEmpty(secondary)) SecondaryButton.Visibility = Visibility.Collapsed; // só um botão (energia: Cancelar)
 
-        Title = "Mixer de Áudio";
+        Title = "Controladora PC";
         SystemBackdrop = new Microsoft.UI.Xaml.Media.DesktopAcrylicBackdrop();
         ExtendsContentIntoTitleBar = true;
         var presenter = (OverlappedPresenter)AppWindow.Presenter;

@@ -1,7 +1,7 @@
 {
   "name": "Controladora PC",
   "short_name": "Controladora",
-  "start_url": "/novo",
+  "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "background_color": "#0f1218",

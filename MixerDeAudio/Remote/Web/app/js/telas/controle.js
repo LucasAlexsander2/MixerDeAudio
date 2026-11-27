@@ -1,5 +1,5 @@
 // Tela Controle (Fase 15c, D15): touchpad, teclado (com Ctrl, Alt, Shift e Win presos), Apresentação, Vídeo e Mídia.
-// Funções e mensagens da página antiga (antigo/16-controle.js): mouse, clique (esq, dir, duplo), botao (arrastar), rolar, texto,
+// Funções e mensagens da página antiga (página antiga, 16-controle.js): mouse, clique (esq, dir, duplo), botao (arrastar), rolar, texto,
 // tecla e acordado. Contrato do ctx: telas/LEIAME.md.
 import { criarCabecalho } from '../componentes/cabecalho.js';
 import { criarGrupoChips } from '../componentes/chip.js';

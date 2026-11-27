@@ -80,7 +80,7 @@ public sealed partial class FlyoutWindow : Window
         _resizeTimer.IsRepeating = false;
         _resizeTimer.Tick += (_, _) => ApplyHeight();
 
-        Title = "Mixer de Áudio";
+        Title = "Controladora PC";
         SystemBackdrop = new Microsoft.UI.Xaml.Media.DesktopAcrylicBackdrop(); // Fase 8, D4
         ExtendsContentIntoTitleBar = true;
 

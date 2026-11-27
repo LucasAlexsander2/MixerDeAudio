@@ -5,8 +5,6 @@ namespace MixerDeAudio.Tests;
 
 public class WebAssetsTests
 {
-    private const string OldPageHash = "ffff7d3dbdef971270c97731b09a759fb2b389b63149a032cc56ced9784a0d8b";
-
     private static string WebDir()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
@@ -74,24 +72,12 @@ public class WebAssetsTests
     }
 
     [Fact]
-    public void PaginaAntiga_Partes_Concatenadas_Tem_O_Hash_Congelado()
+    public void PaginaAntiga_NaoExisteMais()
     {
-        var dir = Path.Combine(WebDir(), "antigo");
-        using var ms = new MemoryStream();
-        foreach (var part in WebAssets.OldPageParts)
-        {
-            var bytes = File.ReadAllBytes(Path.Combine(dir, part));
-            ms.Write(bytes, 0, bytes.Length);
-        }
-        var semCr = ms.ToArray().Where(b => b != 13).ToArray();
-        Assert.Equal(OldPageHash, Convert.ToHexString(SHA256.HashData(semCr)).ToLowerInvariant());
-    }
-
-    [Fact]
-    public void PaginaAntiga_Lista_Igual_A_Pasta()
-    {
-        var files = Directory.GetFiles(Path.Combine(WebDir(), "antigo")).Select(Path.GetFileName).OrderBy(x => x, StringComparer.Ordinal).ToArray();
-        Assert.Equal(WebAssets.OldPageParts.OrderBy(x => x, StringComparer.Ordinal).ToArray(), files);
+        // Fase 17, D2: substitui o hash e a lista da pasta antiga (a garantia de nada perdido esta em WebFrontTests, D3)
+        Assert.False(Directory.Exists(Path.Combine(WebDir(), "antigo")));
+        Assert.False(File.Exists(Path.Combine(WebDir(), "app", "js", "telas", "galeria.js")));
+        Assert.Null(typeof(WebAssets).GetField("OldPageParts"));
     }
 
     [Fact]

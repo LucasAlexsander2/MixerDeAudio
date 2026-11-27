@@ -1,5 +1,5 @@
 # Servidor de teste (Fase 15.0): liga o app publicado com --teste-oculto --celular-local --teste-pc e um codigo conhecido, para o Claude conferir
-# o novo front (/novo) no navegador embutido (PC de teste de verdade: toda acao so grava "teste-pc: <acao>" no log).
+# a Controladora PC (/) no navegador embutido (PC de teste de verdade: toda acao so grava "teste-pc: <acao>" no log).
 #   powershell -NoProfile -ExecutionPolicy Bypass -File tools\testes\servidor-teste.ps1 [-Codigo 123456] [-LimiteHoras 12]
 # Imprime PORTA=, CODIGO=, PARAR= e LOG=, depois PRONTO. Fica esperando o arquivo PARAR (crie-o, por exemplo com
 # `New-Item <caminho do PARAR>`) e entao encerra o app, restaura o config.json e o registro e reabre o app do usuario.
@@ -53,7 +53,7 @@ try {
   "CODIGO=$Codigo"
   "PARAR=$parar"
   "LOG=$script:log"
-  "PRONTO (abra http://127.0.0.1:$porta/novo ; para encerrar, crie o arquivo PARAR)"
+  "PRONTO (abra http://127.0.0.1:$porta/ ; para encerrar, crie o arquivo PARAR)"
 
   $limite = [Diagnostics.Stopwatch]::StartNew()
   while (-not (Test-Path $parar)) {

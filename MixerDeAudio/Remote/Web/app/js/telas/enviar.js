@@ -1,5 +1,5 @@
 // Tela Enviar (Fase 15d, D17): área de transferência nos dois sentidos e envio de arquivos com progresso.
-// Mensagens e regras da página antiga (antigo/13-enviar.js): `clipLer`, `clipGravar` { s } (máximo 4.000 caracteres),
+// Mensagens e regras da página antiga (página antiga, 13-enviar.js): `clipLer`, `clipGravar` { s } (máximo 4.000 caracteres),
 // resposta `clip` { s, cortado } e `POST /arquivo?nome=` por XHR (máximo 500 MB, erros 401/403/409/411/413/507).
 import { criarCabecalho } from '../componentes/cabecalho.js';
 import { criarCartao } from '../componentes/cartao.js';

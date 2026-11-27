@@ -1,7 +1,8 @@
 # Roteiro de tela da Fase 16 (Seguranca): so o que depende do servidor real; as regras puras estao nos testes unitarios.
 #   -Parte a (16a, Pareamento e rede):
-#     16a.1 Host: GET /, /novo, /sessao e /ws com "Host: mal.exemplo:<porta>" (e com a porta errada) => 421; com o Host certo, como antes.
-#     16a.3 Cabecalhos: X-Frame-Options: DENY e a CSP da D6 em / e /novo (e o X-Frame-Options tambem num 404).
+#     16a.1 Host: GET /, /novo (301 desde a Fase 17), /sessao e /ws com "Host: mal.exemplo:<porta>" (e com a porta errada) => 421; com o Host certo, como antes.
+#     16a.3 Cabecalhos: X-Frame-Options: DENY e a CSP da D6 (script-src sem 'unsafe-inline' desde a Fase 17, D5) em /; /novo = 301 com
+#           X-Frame-Options DENY (e o X-Frame-Options tambem num 404).
 #     16a.2 Corrida do limitador: 32 /parear errados ao mesmo tempo, segurando o corpo => no maximo 5 contam, o resto recebe 429.
 #           (roda por ultimo: deixa o 127.0.0.1 bloqueado por 1 min no limitador do app, que e fechado no fim)
 #   -Parte b (16b, Avisos e celulares):
@@ -55,20 +56,20 @@ try {
     $portaErrada = HostGet $porta '/' "127.0.0.1:$($porta + 1)"
     $certo = @($caminhos | ForEach-Object { HostGet $porta $_ "127.0.0.1:$porta" $chave })
     $local = HostGet $porta '/' "localhost:$porta"
-    $esperadoCerto = @(200, 200, 204, 101)
+    $esperadoCerto = @(200, 301, 204, 101)   # Fase 17: /novo agora e 301 para /
     $ok1 = (@($recusados | Where-Object { $_ -eq 421 }).Count -eq 4) -and $portaErrada -eq 421 -and
            (($certo -join ',') -eq ($esperadoCerto -join ',')) -and $local -eq 200
     Resultado '16a.1 Host' $ok1 "Host mal.exemplo em /, /novo, /sessao e /ws=[$($recusados -join ',')] (esperado 421 nos quatro); porta errada=$portaErrada; Host 127.0.0.1=[$($certo -join ',')] (esperado $($esperadoCerto -join ',')); localhost=$local (200); log de recusa=$(LogCount 'Host recusado')"
 
     # 16a.3 Cabecalhos (D6)
-    $cspEsperada = "frame-ancestors 'none'; default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self' ws://127.0.0.1:$porta"
+    $cspEsperada = "frame-ancestors 'none'; default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self' ws://127.0.0.1:$porta"
     $raiz = CabecalhosSeg $porta '/'
     $novo = CabecalhosSeg $porta '/novo'
     $nada = CabecalhosSeg $porta '/nao-existe'
     $ok3 = $raiz.Status -eq 200 -and $raiz.Xfo -eq 'DENY' -and $raiz.Csp -eq $cspEsperada -and
-           $novo.Status -eq 200 -and $novo.Xfo -eq 'DENY' -and $novo.Csp -eq $cspEsperada -and
+           $novo.Status -eq 301 -and $novo.Xfo -eq 'DENY' -and
            $nada.Status -eq 404 -and $nada.Xfo -eq 'DENY'
-    Resultado '16a.3 Cabecalhos' ([bool]$ok3) "/ status=$($raiz.Status) XFO=$($raiz.Xfo) CSP igual=$($raiz.Csp -eq $cspEsperada); /novo status=$($novo.Status) XFO=$($novo.Xfo) CSP igual=$($novo.Csp -eq $cspEsperada); 404 status=$($nada.Status) XFO=$($nada.Xfo)"
+    Resultado '16a.3 Cabecalhos' ([bool]$ok3) "/ status=$($raiz.Status) XFO=$($raiz.Xfo) CSP igual=$($raiz.Csp -eq $cspEsperada); /novo status=$($novo.Status) (esperado 301) XFO=$($novo.Xfo); 404 status=$($nada.Status) XFO=$($nada.Xfo)"
     if ($raiz.Csp -ne $cspEsperada) { "     CSP recebida: $($raiz.Csp)" }
 
     # 16a.2 Corrida do limitador (D2): 32 pedidos errados ao mesmo tempo, corpo seguro ate todos conectarem (por ultimo)

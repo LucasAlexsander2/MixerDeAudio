@@ -181,7 +181,8 @@ public class RemoteRulesTests
     {
         var csp = RemoteRules.BuildCsp("192.168.0.10:8750");
         Assert.StartsWith("frame-ancestors 'none'; default-src 'self'; ", csp);
-        Assert.Contains("script-src 'self' 'unsafe-inline'", csp);
+        Assert.Contains("script-src 'self'; style-src", csp);   // Fase 17, D5: sem 'unsafe-inline' nos scripts
+        Assert.DoesNotContain("script-src 'self' 'unsafe-inline'", csp);
         Assert.Contains("style-src 'self' 'unsafe-inline'", csp);
         Assert.Contains("img-src 'self' blob: data:", csp);
         Assert.Contains("font-src 'self'", csp);
@@ -406,25 +407,55 @@ public class RemoteRulesTests
     [Fact]
     public void PaginaDoCelular_TemMenosDe64KbESemUrlExterna()
     {
-        // Fase 14, D7: a pagina antiga agora e um conjunto de partes em Web/antigo, servidas concatenadas
+        // Fase 17: a pagina servida em / e o app/index.html (a antiga saiu); a garantia de nao ter URL externa vale para ele e para o CSS
         string? dir = null;
         for (var d = new DirectoryInfo(AppContext.BaseDirectory); d is not null; d = d.Parent)
         {
-            var candidate = Path.Combine(d.FullName, "MixerDeAudio", "Remote", "Web", "antigo");
+            var candidate = Path.Combine(d.FullName, "MixerDeAudio", "Remote", "Web", "app");
             if (Directory.Exists(candidate)) { dir = candidate; break; }
         }
         Assert.NotNull(dir);
-        using var ms = new MemoryStream();
-        foreach (var part in WebAssets.OldPageParts)
-        {
-            var partBytes = File.ReadAllBytes(Path.Combine(dir!, part));
-            ms.Write(partBytes, 0, partBytes.Length);
-        }
-        var bytes = ms.ToArray();
-        Assert.True(bytes.Length < 64 * 1024, $"a pagina antiga tem {bytes.Length} bytes");
+        var bytes = File.ReadAllBytes(Path.Combine(dir!, "index.html"));
+        Assert.True(bytes.Length < 64 * 1024, $"a pagina tem {bytes.Length} bytes");
         var text = Encoding.UTF8.GetString(bytes);
         Assert.DoesNotMatch(@"https?://", text);
         Assert.DoesNotMatch(@"(src|href)\s*=\s*[""']?//", text);
         Assert.DoesNotContain("@import", text);
+        foreach (var css in Directory.GetFiles(Path.Combine(dir!, "css"), "*.css", SearchOption.AllDirectories))
+        {
+            var c = File.ReadAllText(css);
+            Assert.DoesNotMatch(@"https?://", c);
+            Assert.DoesNotContain("@import", c);
+        }
+    }
+
+    private static string ServerSource() // Fase 17: confere as regras de rota no codigo-fonte do servidor
+    {
+        for (var d = new DirectoryInfo(AppContext.BaseDirectory); d is not null; d = d.Parent)
+        {
+            var f = Path.Combine(d.FullName, "MixerDeAudio", "Remote", "RemoteServer.cs");
+            if (File.Exists(f)) return File.ReadAllText(f);
+        }
+        throw new FileNotFoundException("RemoteServer.cs");
+    }
+
+    [Fact]
+    public void Rotas_RaizServeONovoENovoDa301ParaRaiz()
+    {
+        var src = ServerSource();
+        Assert.Contains("NewPageResource = \"MixerDeAudio.Web/app/index.html\"", src);
+        Assert.Matches(@"path == ""/""\)\s*await ServePageAsync", src);
+        Assert.Matches(@"path == ""/novo"" \|\| path == ""/novo/""[\s\S]{0,200}WriteAsync\(stream, 301, ""text/plain; charset=utf-8"", Array\.Empty<byte>\(\), new\[\] \{ ""Location: /"" \}", src);
+        Assert.Contains("301 => \"Moved Permanently\"", src);
+        Assert.DoesNotContain("OldPage", src);
+        Assert.DoesNotContain("ServeNewPageAsync", src);
+    }
+
+    [Fact]
+    public void Icone_UsaUmUnicoCacheControlDe1Hora()
+    {
+        var src = ServerSource();
+        Assert.Contains("\"image/png\", png, null, ct, \"private, max-age=3600\")", src);
+        Assert.DoesNotContain("\"Cache-Control: private", src);
     }
 }

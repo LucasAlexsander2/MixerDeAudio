@@ -9,10 +9,11 @@
 //   celular.exe ciclos <porta> <chave> <n>           -> conecta e desconecta n vezes (espera o estado a cada conexão); imprime "ciclos=<ok>"
 //   celular.exe get <porta> <caminho> [chave|-] [origin|-]
 //                                                    -> GET cru; imprime só o código HTTP. Em /ws manda os cabeçalhos de upgrade.
-//   celular.exe cabecalhos <porta> <caminho> [etag|-]
+//   celular.exe cabecalhos <porta> <caminho> [etag|-] [chave|-]
 //                                                    -> (Fase 14) GET sem cookie (paginas e arquivos estaticos) com If-None-Match opcional; le a resposta ate fechar e imprime
 //                                                       status|content-type|cache-control|etag|sha256-do-corpo|bytes|sha256-do-corpo-sem-CR (cabecalho ausente = vazio)
 //                                                       (Fase 16) mais dois campos no fim: |x-frame-options|content-security-policy
+//                                                       (Fase 17) mais tres: |location|quantidade-de-Cache-Control|1-se-o-corpo-cita-/app/js/app.js ; o 4o argumento manda o cookie mx
 //   celular.exe hostget <porta> <caminho> <host> [chave|-]
 //                                                    -> (Fase 16) GET cru com o cabecalho Host que voce mandar (so conecta no 127.0.0.1); imprime so o codigo HTTP.
 //                                                       Em /ws e /tela/ws manda os cabecalhos de upgrade, com Origin igual ao Host.
@@ -89,7 +90,7 @@ try
             return ok == n ? 0 : 1;
         }
         case "cabecalhos" when args.Length >= 3:
-            return await Cabecalhos(int.Parse(args[1]), args[2], args.Length > 3 ? args[3] : null);
+            return await Cabecalhos(int.Parse(args[1]), args[2], args.Length > 3 ? args[3] : null, args.Length > 4 && args[4] != "-" ? args[4] : null);
         case "get" when args.Length >= 3:
             return await Get(int.Parse(args[1]), args[2], args.Length > 3 && args[3] != "-" ? args[3] : null, args.Length > 4 && args[4] != "-" ? args[4] : null);
         case "hostget" when args.Length >= 4:
@@ -186,7 +187,7 @@ static async Task<int> Reconectar(int porta, string chave, int segundos, string?
 
 static int Uso()
 {
-    Console.Error.WriteLine("uso: parear <porta> <codigo> | estado <porta> <chave> | enviar <porta> <chave> <json> | ciclos <porta> <chave> <n> | get <porta> <caminho> [chave|-] [origin|-] | cabecalhos <porta> <caminho> [etag|-] | hostget <porta> <caminho> <host> [chave|-] | rajada <porta> <n> [codigo] | segurar <porta> <chave> <segundos> [arquivo-parar] | reconectar <porta> <chave> <segundos> [arquivo-parar] | ferramenta <porta> <chave> <json> | brilhorajada <porta> <chave> <tela> <de> <ate> | segundo <porta> <chave> | tela <porta> <chave|-> <q:mon:w:seg:ok|semok;...> | arquivo <porta> <chave> <caminho> [nome] | info <porta> <chave> <seg-ligado> <seg-depois>");
+    Console.Error.WriteLine("uso: parear <porta> <codigo> | estado <porta> <chave> | enviar <porta> <chave> <json> | ciclos <porta> <chave> <n> | get <porta> <caminho> [chave|-] [origin|-] | cabecalhos <porta> <caminho> [etag|-] [chave|-] | hostget <porta> <caminho> <host> [chave|-] | rajada <porta> <n> [codigo] | segurar <porta> <chave> <segundos> [arquivo-parar] | reconectar <porta> <chave> <segundos> [arquivo-parar] | ferramenta <porta> <chave> <json> | brilhorajada <porta> <chave> <tela> <de> <ate> | segundo <porta> <chave> | tela <porta> <chave|-> <q:mon:w:seg:ok|semok;...> | arquivo <porta> <chave> <caminho> [nome] | info <porta> <chave> <seg-ligado> <seg-depois>");
     return 2;
 }
 
@@ -409,7 +410,7 @@ static async Task<int> Rajada(int porta, int n, string codigo)
     return 0;
 }
 
-static async Task<int> Cabecalhos(int porta, string caminho, string? etag)
+static async Task<int> Cabecalhos(int porta, string caminho, string? etag, string? chave = null)
 {
     using var tcp = new TcpClient();
     await tcp.ConnectAsync(Host, porta);
@@ -417,6 +418,7 @@ static async Task<int> Cabecalhos(int porta, string caminho, string? etag)
     var sb = new StringBuilder();
     sb.Append($"GET {caminho} HTTP/1.1\r\nHost: {Host}:{porta}\r\nConnection: close\r\n");
     if (!string.IsNullOrEmpty(etag) && etag != "-") sb.Append($"If-None-Match: {etag}\r\n");
+    if (chave is not null) sb.Append($"Cookie: mx={chave}\r\n");
     sb.Append("\r\n");
     await stream.WriteAsync(Encoding.ASCII.GetBytes(sb.ToString()));
     using var ms = new MemoryStream();
@@ -436,7 +438,10 @@ static async Task<int> Cabecalhos(int porta, string caminho, string? etag)
     var corpo = tudo.AsSpan(fim + 4).ToArray();
     var sha = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(corpo)).ToLowerInvariant();
     var semCr = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(corpo.Where(b => b != 13).ToArray())).ToLowerInvariant();
-    Console.WriteLine($"{status}|{H("Content-Type")}|{H("Cache-Control")}|{H("ETag")}|{sha}|{corpo.Length}|{semCr}|{H("X-Frame-Options")}|{H("Content-Security-Policy")}");
+    // Fase 17: campos 9 (Location), 10 (quantos Cache-Control vieram) e 11 (1 se o corpo cita /app/js/app.js)
+    var nCache = linhas.Skip(1).Count(l => l.StartsWith("Cache-Control:", StringComparison.OrdinalIgnoreCase));
+    var citaApp = Encoding.UTF8.GetString(corpo).Contains("/app/js/app.js", StringComparison.Ordinal) ? 1 : 0;
+    Console.WriteLine($"{status}|{H("Content-Type")}|{H("Cache-Control")}|{H("ETag")}|{sha}|{corpo.Length}|{semCr}|{H("X-Frame-Options")}|{H("Content-Security-Policy")}|{H("Location")}|{nCache}|{citaApp}");
     return 0;
 }
 

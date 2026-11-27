@@ -12,7 +12,7 @@ export const OPCOES_MAO = [
   { valor: 'esquerda', texto: 'Esquerda' },
 ];
 
-// Grupo "Mão usada" (rótulo + chips), reaproveitado pela Galeria. Devolve { el }.
+// Grupo "Mão usada" (rótulo + chips). Devolve { el }.
 export function criarGrupoMao() {
   const el = document.createElement('div');
   const rotulo = document.createElement('div');

@@ -5,7 +5,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:vm="using:MixerDeAudio.ViewModels">
 
-    <Grid x:Name="Root" AutomationProperties.AutomationId="FlyoutRoot" AutomationProperties.Name="Mixer de Áudio"
+    <Grid x:Name="Root" AutomationProperties.AutomationId="FlyoutRoot" AutomationProperties.Name="Controladora PC"
           AutomationProperties.AccessibilityView="Content" Padding="20,16,12,12" IsTabStop="True" RowSpacing="8">
         <Grid.RowDefinitions>
             <RowDefinition Height="*" />

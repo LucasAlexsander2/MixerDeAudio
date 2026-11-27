@@ -1,5 +1,5 @@
 // Tela Atalhos (Fase 15d, D17): blocos com os atalhos da pasta escolhida no PC (`pc.atalhos` do estado).
-// Mensagens da página antiga (antigo/15-janelas.js e 10-menu.js): `atalho` { nome } e `atualizar` ao abrir a área.
+// Mensagens da página antiga (página antiga, 15-janelas.js e 10-menu.js): `atalho` { nome } e `atualizar` ao abrir a área.
 import { criarCabecalho } from '../componentes/cabecalho.js';
 import { criarBloco } from '../componentes/bloco.js';
 import { criarGrade } from '../componentes/faixa.js';

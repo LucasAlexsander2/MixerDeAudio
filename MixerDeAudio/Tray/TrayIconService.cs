@@ -46,7 +46,7 @@ internal sealed class TrayIconService : IDisposable
 
         _icon = new TaskbarIcon
         {
-            ToolTipText = "Mixer de Áudio",
+            ToolTipText = "Controladora PC",
             Icon = _iconImage,
             ContextMenuMode = ContextMenuMode.PopupMenu,
             ContextFlyout = menu,
@@ -74,9 +74,9 @@ internal sealed class TrayIconService : IDisposable
             };
             _icon.ToolTipText = state switch
             {
-                TrayState.PhoneConnected => "Mixer de Áudio: celular conectado",
-                TrayState.ScreenShared => "Mixer de Áudio: tela do PC sendo vista no celular",
-                _ => "Mixer de Áudio",
+                TrayState.PhoneConnected => "Controladora PC: celular conectado",
+                TrayState.ScreenShared => "Controladora PC: tela do PC sendo vista no celular",
+                _ => "Controladora PC",
             };
         }
         catch (Exception ex)

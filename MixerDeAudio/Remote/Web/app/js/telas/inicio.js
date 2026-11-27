@@ -1,5 +1,5 @@
 // Início (Fase 15a): estado rápido (CPU, GPU, RAM), favoritos (D11), "Todas as funções" em blocos e Desconectar.
-// Mesma regra de grupos da página antiga (antigo/10-menu.js, renderPc): cada área só aparece se o grupo dela estiver ligado no PC.
+// Mesma regra de grupos da página antiga (página antiga, 10-menu.js, renderPc): cada área só aparece se o grupo dela estiver ligado no PC.
 import { criarBloco } from '../componentes/bloco.js';
 import { criarBotao } from '../componentes/botao.js';
 import { criarChip } from '../componentes/chip.js';

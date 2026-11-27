@@ -1,5 +1,5 @@
 // Tela Estado do PC (Fase 15b, D14): CPU, GPU, memória, ligado há, bateria e disco do Windows.
-// Assina o grupo `info` só com a tela no topo (D4/D5). Mensagem recebida (antigo/12-estado-pc.js):
+// Assina o grupo `info` só com a tela no topo (D4/D5). Mensagem recebida (página antiga, 12-estado-pc.js):
 // { t:'info', cpu, gpu? (0-100, ausente sem leitura), mem:{usada,total}, ligado, bateria:{pct,carregando}|null, disco:{livre,total} }.
 import { criarCabecalho } from '../componentes/cabecalho.js';
 import { criarCartao } from '../componentes/cartao.js';

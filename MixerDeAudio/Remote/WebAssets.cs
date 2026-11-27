@@ -7,22 +7,13 @@ namespace MixerDeAudio.Remote;
 public sealed record WebAsset(string Resource, string ContentType, string CacheControl);
 
 /// <summary>
-/// Fase 14, D2 a D8: regras puras das rotas /app/* e /fontes/* e da página antiga em partes.
+/// Fase 14, D2 a D8: regras puras das rotas /app/* e /fontes/* .
 /// </summary>
 public static class WebAssets
 {
     public const string ResourcePrefix = "MixerDeAudio.Web/";
-    public const string OldPagePrefix = "MixerDeAudio.Web/antigo/";
     public const string NoCache = "no-cache";
     public const string Immutable = "public, max-age=31536000, immutable";
-
-    /// <summary>Partes da página antiga, na ordem em que são concatenadas (D7).</summary>
-    public static readonly string[] OldPageParts =
-    {
-        "01-inicio.html", "02-estilo.css", "03-corpo.html", "04-base.js", "05-conexao.js", "06-pareamento.js",
-        "07-sliders.js", "08-som.js", "09-pc.js", "10-menu.js", "11-brilho.js", "12-estado-pc.js",
-        "13-enviar.js", "14-sono.js", "15-janelas.js", "16-controle.js", "17-tela.js", "18-partida.js",
-    };
 
     /// <summary>Tipo (D4) pela extensão; nulo se a extensão não é servida.</summary>
     public static string? ContentTypeFor(string path)

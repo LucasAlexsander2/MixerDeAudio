@@ -82,7 +82,7 @@ internal sealed class PcController
         Log.Write(now ? $"celular: energia {id} agora (em {seconds} s)" : $"celular: energia {id} em {seconds} s");
         CloseNowPrompt();
         _power.Schedule(action, seconds);
-        Notify("Mixer de Áudio", PowerRules.BalloonText(action, seconds));
+        Notify("Controladora PC", PowerRules.BalloonText(action, seconds));
         Arm();
         PlanChanged();
         if (now) _ = ShowNowPromptAsync(action, seconds);
@@ -166,7 +166,7 @@ internal sealed class PcController
         switch (ev.Kind)
         {
             case PowerEventKind.Warn:
-                Notify("Mixer de Áudio", PowerRules.BalloonText(ev.Action, PowerRules.WarnSeconds));
+                Notify("Controladora PC", PowerRules.BalloonText(ev.Action, PowerRules.WarnSeconds));
                 Arm();
                 break;
             case PowerEventKind.Execute:
@@ -514,7 +514,7 @@ internal sealed class PcController
     public void Balloon(string text, string logText)
     {
         Log.Write($"celular: balao: {logText}"); // o nome do arquivo não vai para o log (D12)
-        try { _balloon("Mixer de Áudio", text); }
+        try { _balloon("Controladora PC", text); }
         catch (Exception ex) { Log.Write($"ERRO celular: balao: {ex.Message}"); }
     }
 

@@ -1,4 +1,4 @@
-// Entrada do novo front (/novo): liga a pilha de telas, a conexão com o PC e as telas provisórias (D10 a D14, D19).
+// Entrada da Controladora PC (/): liga a pilha de telas, a conexão com o PC e as telas provisórias (D10 a D14, D19).
 import { lerMao, aoMudarMao, definirMao, ler, gravar } from './preferencias.js';
 import { criarPilha } from './pilha.js';
 import { iniciarConexao, enviar, parear, reconectarAgora, aoMensagem } from './conexao.js';
@@ -9,7 +9,6 @@ import { criarDica } from './componentes/dica.js';
 import { criarAviso } from './componentes/aviso.js';
 import { criarTelaAcesso } from './telas/acesso.js';
 import { criarTelaInicio, AREAS } from './telas/inicio.js';
-import { criarTelaGaleria } from './telas/galeria.js';
 import { criarTelaOpcoes } from './telas/opcoes.js';
 import { criarTela as criarTelaSom } from './telas/som.js';
 import { criarTela as criarTelaEnergia } from './telas/energia.js';
@@ -101,10 +100,6 @@ for (const a of AREAS) pilha.registrar(a.nome, () => MODULOS[a.nome](ctx));
 
 pilha.registrar('opcoes', () => criarTelaOpcoes({ ctx, aoVoltar: () => pilha.voltar() }));
 
-// D26: /novo#galeria abre a Galeria dos componentes sem precisar do PC (sem conexão nem tela de acesso)
-const modoGaleria = location.hash === '#galeria';
-pilha.registrar('galeria', () => criarTelaGaleria({ container: camadas, toast, dica, aoVoltar: () => pilha.voltar() }));
-
 const acesso = criarTelaAcesso({
   container: camadas,
   aoParear: (codigo) => parear(codigo),
@@ -123,11 +118,7 @@ function emAcesso(mostrar) {
   mostrar();
 }
 
-if (modoGaleria) {
-  // ao recarregar numa tela interna a pilha ainda volta ao Início (popstate); abre a Galeria depois disso
-  if (history.state && history.state.n > 0) window.addEventListener('popstate', () => pilha.abrir('galeria'), { once: true });
-  else pilha.abrir('galeria');
-} else iniciarConexao({
+iniciarConexao({
   aoConectado() {
     acesso.esconder();
     acesso.definirFaixa(false);

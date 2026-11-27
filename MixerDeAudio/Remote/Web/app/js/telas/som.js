@@ -1,5 +1,5 @@
 // Tela Som (Fase 15a): saídas (tocar = virar a padrão), volume geral com mudo e um cartão por app
-// (mudo, volume, saída pela folha, Anterior/Pausa/Próxima e a música). Funções e mensagens da página antiga (antigo/08-som.js).
+// (mudo, volume, saída pela folha, Anterior/Pausa/Próxima e a música). Funções e mensagens da página antiga (página antiga, 08-som.js).
 import { criarCabecalho } from '../componentes/cabecalho.js';
 import { criarFaixa } from '../componentes/faixa.js';
 import { criarBloco } from '../componentes/bloco.js';

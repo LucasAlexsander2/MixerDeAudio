@@ -1,5 +1,5 @@
 // Telas de acesso (D19): conectando, pareamento com 6 dígitos, ocupado, desconectado, e a faixa "Reconectando…".
-// Textos e regras iguais aos da página antiga (antigo/03-corpo.html e 06-pareamento.js).
+// Textos e regras iguais aos da página antiga (página antiga, 03-corpo.html e 06-pareamento.js).
 import { criarBotao } from '../componentes/botao.js';
 
 // opções: { container, aoParear(codigo) -> Promise<erro|null>, aoConectarDeNovo }.

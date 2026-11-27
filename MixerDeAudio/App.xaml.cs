@@ -105,13 +105,13 @@ public partial class App : Application
         // Servidor do celular (Fase 6, D10 e D12): desligado por padrão; liga na partida e quando o interruptor muda
         _remote = new RemoteServer(_hub, Settings, UiQueue!, commandLine.CelularLocal, AskPairing);
         // Fase 16, D10: avisos no PC (balão e ícone da bandeja) de celular novo, celular conectado e tela transmitida
-        _remote.PhonePaired += name => RunOnUi(() => _tray?.ShowBalloon("Mixer de Áudio", $"Novo celular pareado: {name}"));
-        _remote.PhoneConnected += name => RunOnUi(() => _tray?.ShowBalloon("Mixer de Áudio", $"Celular conectado: {name}"));
+        _remote.PhonePaired += name => RunOnUi(() => _tray?.ShowBalloon("Controladora PC", $"Novo celular pareado: {name}"));
+        _remote.PhoneConnected += name => RunOnUi(() => _tray?.ShowBalloon("Controladora PC", $"Celular conectado: {name}"));
         _remote.ConnectionsChanged += () => RunOnUi(() => { _phoneOn = _remote?.ConnectionCount > 0; UpdateTrayState(); });
         _remote.ScreenSharingChanged += on => RunOnUi(() =>
         {
             _screenOn = on;
-            if (on) _tray?.ShowBalloon("Mixer de Áudio", "A tela do PC está sendo vista no celular");
+            if (on) _tray?.ShowBalloon("Controladora PC", "A tela do PC está sendo vista no celular");
             UpdateTrayState();
         });
         Settings.Changed += OnSettingsChanged;
@@ -164,7 +164,7 @@ public partial class App : Application
         var version = _updates.Status.NewVersion;
         if (!UpdateRules.ShouldNotify(Settings.Current.BalaoVersao, version)) return;
         Settings.Update(s => s with { BalaoVersao = version });
-        _tray?.ShowBalloon("Mixer de Áudio", $"Versão {version} disponível. Clique no ícone para atualizar.");
+        _tray?.ShowBalloon("Controladora PC", $"Versão {version} disponível. Clique no ícone para atualizar.");
         Log.Write($"atualizacao: versao {version} disponivel (balao mostrado)");
     }
 
@@ -182,7 +182,7 @@ public partial class App : Application
     private Task<bool> AskPairing(string phone)
     {
         var title = $"Permitir o {phone} a controlar este PC?";
-        _tray?.ShowBalloon("Mixer de Áudio", title);
+        _tray?.ShowBalloon("Controladora PC", title);
         return Flyout.PcPromptWindow.AskAsync(title,
             "Um celular com o código certo quer parear. Se não foi você, recuse.", "Permitir", "Recusar", 60, resultOnTimeout: false, hidden: _hiddenTest);
     }
@@ -192,7 +192,7 @@ public partial class App : Application
     /// <c>true</c> = o usuário cancelou. Também aparece com <c>--teste-pc</c> (o PC de teste só registra no log).
     /// </summary>
     private Task<bool> AskPowerNow(PowerAction action, int seconds, System.Threading.CancellationToken close) =>
-        Flyout.PcPromptWindow.AskAsync("Mixer de Áudio", PowerRules.NowPromptText(action, seconds), "Cancelar", "", seconds,
+        Flyout.PcPromptWindow.AskAsync("Controladora PC", PowerRules.NowPromptText(action, seconds), "Cancelar", "", seconds,
             resultOnTimeout: false, countdownText: left => PowerRules.NowPromptText(action, left), hidden: _hiddenTest, close: close);
 
     /// <summary>Fase 16, D10: a tela transmitida vale mais que o celular conectado. Thread da tela.</summary>

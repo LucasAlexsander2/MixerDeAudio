@@ -1,6 +1,7 @@
 # Roteiro de tela da Fase 14: servidor de arquivos estaticos, pagina antiga em partes e fontes (so o que depende do app publicado de verdade;
-# as regras de caminho, ETag e o hash da pagina antiga ficam nos testes unitarios WebAssetsTests).
-#   Casos 14.1 a 14.4: pagina antiga identica, recursos embutidos e cabecalhos, 304 e sem regressao (parear e estado).
+# as regras de caminho e ETag ficam nos testes unitarios WebAssetsTests).
+#   Casos 14.2 a 14.4: recursos embutidos e cabecalhos, 304 e sem regressao (parear e estado).
+#   O 14.1 (pagina antiga identica) foi substituido pelo 17.1 (roteiro-f17): a pagina antiga saiu na Fase 17.
 # Roda depois da 14a (app/ vazia: os casos que dependem de arquivos de app/ viram PULADO) e de novo depois da 14b, sem mudar nada.
 # Usa o build publicado em publicado\. Sem teclas nem cliques reais, sem trazer janela para a frente.
 # SEGURANCA: o app roda SEMPRE com --teste-oculto --celular-local --teste-pc (sem janela nem icone, sem aviso do firewall).
@@ -15,7 +16,6 @@ function Resultado([string]$caso, [bool]$ok, [string]$detalhe) {
 }
 function Pulado([string]$caso, [string]$detalhe) { 'PULADO {0}: {1}' -f $caso, $detalhe }
 
-$hashAntiga = 'ffff7d3dbdef971270c97731b09a759fb2b389b63149a032cc56ced9784a0d8b'
 $tipos = @{
   '.html' = 'text/html; charset=utf-8'; '.js' = 'text/javascript; charset=utf-8'; '.css' = 'text/css; charset=utf-8'
   '.webmanifest' = 'application/manifest+json'; '.png' = 'image/png'; '.svg' = 'image/svg+xml'; '.woff2' = 'font/woff2'; '.txt' = 'text/plain; charset=utf-8'
@@ -39,9 +39,7 @@ try {
   $porta = LigarFerramentas @()
   if (-not $porta) { throw 'o servidor do celular nao ligou (sem linha no log)' }
 
-  # 14.1 A pagina antiga e identica (hash sem CR igual ao congelado)
-  $r = Cabecalhos $porta '/'
-  Resultado '14.1 Pagina antiga identica' ([bool]($r.Status -eq 200 -and $r.Tipo -eq 'text/html; charset=utf-8' -and $r.Cache -eq 'no-store' -and $r.ShaSemCr -eq $hashAntiga)) "status=$($r.Status); tipo=$($r.Tipo); cache=$($r.Cache); bytes=$($r.Bytes); sha256 sem CR=$($r.ShaSemCr) (esperado $hashAntiga)"
+  # 14.1 substituido pelo 17.1 (roteiro-f17.ps1): a pagina antiga saiu e o GET / serve o layout novo
 
   # 14.2 Recursos embutidos e cabecalhos reais
   $web = Join-Path (Split-Path (Split-Path $PSScriptRoot)) 'MixerDeAudio\Remote\Web'
@@ -72,22 +70,20 @@ try {
     if ($url.StartsWith('/app/')) { $etagApp[$url] = $r.ETag }
     $conferidos++
   }
+  # Fase 17, D1: /novo e /novo/ respondem 301 (sem corpo) para /; o destino e a CSP ficam no 17.1
   $novo = Cabecalhos $porta '/novo'
   $novoBarra = Cabecalhos $porta '/novo/'
-  $temNovo = Test-Path (Join-Path $web 'app\index.html')
-  if ($temNovo) {
-    foreach ($n in @($novo, $novoBarra)) {
-      if (-not ($n.Status -eq 200 -and $n.Tipo -eq 'text/html; charset=utf-8' -and $n.Cache -eq 'no-store')) { $falhasDe += "/novo status=$($n.Status) tipo=$($n.Tipo) cache=$($n.Cache)" }
-    }
+  foreach ($n in @($novo, $novoBarra)) {
+    if (-not ($n.Status -eq 301 -and $n.Bytes -eq 0)) { $falhasDe += "/novo status=$($n.Status) bytes=$($n.Bytes) (esperado 301 sem corpo)" }
   }
-  else { Pulado '14.2 /novo' 'Remote/Web/app/index.html ainda nao existe (14b)' }
+  $temNovo = Test-Path (Join-Path $web 'app\index.html')
+  if (-not $temNovo) { $falhasDe += 'app/index.html nao existe' }
   $negados = @()
   foreach ($url in '/app/../x.js', '/antigo/04-base.js', '/app/nao-existe.js', '/app/', '/app/%2e%2e/x.js') {
     $r = Cabecalhos $porta $url
     $negados += "$url=$($r.Status)"
     if ($r.Status -ne 404) { $falhasDe += "$url deveria ser 404 e deu $($r.Status)" }
   }
-  if (-not $temNovo -and $novo.Status -ne 404) { $falhasDe += "/novo sem app/index.html deveria ser 404 e deu $($novo.Status)" }
   Resultado '14.2 Recursos embutidos e cabecalhos' ([bool]($falhasDe.Count -eq 0)) "arquivos conferidos em app/ e fontes/=$conferidos; negados: [$($negados -join ' ')]; /novo=$($novo.Status); problemas=[$($falhasDe -join '; ')]"
 
   # 14.3 304 por ETag

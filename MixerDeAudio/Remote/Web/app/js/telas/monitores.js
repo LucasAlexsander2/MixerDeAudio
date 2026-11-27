@@ -1,5 +1,5 @@
 // Tela Monitores (Fase 15b, D14): projeção, apagar/acordar as telas, brilho por tela e manter a tela ligada.
-// Mensagens (antigo/09-pc.js, 11-brilho.js, 16-controle.js): { t:'projecao', modo }, { t:'atualizar' }, { t:'telas', acao:'apagar'|'acordar' },
+// Mensagens (página antiga, 09-pc.js, 11-brilho.js, 16-controle.js): { t:'projecao', modo }, { t:'atualizar' }, { t:'telas', acao:'apagar'|'acordar' },
 // { t:'brilho', tela, valor } e { t:'acordado', on }. O estado vem em estado.pc { projecao:{modo,telas}, brilho:[{tela,valor|null}], acordado }.
 import { criarCabecalho } from '../componentes/cabecalho.js';
 import { criarBloco } from '../componentes/bloco.js';

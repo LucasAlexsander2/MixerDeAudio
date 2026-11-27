@@ -1,5 +1,5 @@
 // Tela Energia (Fase 15b, D14): desligar, reiniciar, suspender e bloquear (com confirmação), agendamento com contagem e Cancelar.
-// Mensagens (antigo/09-pc.js): { t:'energia', acao, seg } e { t:'energiaCancelar' }; o agendamento vem em estado.pc.energia { acao, rest }.
+// Mensagens (página antiga, 09-pc.js): { t:'energia', acao, seg } e { t:'energiaCancelar' }; o agendamento vem em estado.pc.energia { acao, rest }.
 import { criarCabecalho } from '../componentes/cabecalho.js';
 import { criarBotaoGrande } from '../componentes/botaogrande.js';
 import { criarBotao } from '../componentes/botao.js';

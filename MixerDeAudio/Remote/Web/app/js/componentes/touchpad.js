@@ -1,4 +1,4 @@
-// Touchpad (guia 4.5, D25): só os gestos, sem protocolo. Mesmos limites da página antiga (antigo/16-controle.js):
+// Touchpad (guia 4.5, D25): só os gestos, sem protocolo. Mesmos limites da página antiga (página antiga, 16-controle.js):
 //  - um dedo move; o movimento é somado e entregue uma vez por quadro (aoMover) com a sensibilidade;
 //  - toque curto (menos de 350 ms e menos de 10 px) = clique esquerdo; toque com dois dedos = clique direito;
 //  - segurar 450 ms quase parado = segurar o botão esquerdo (arrastar), e soltar solta;

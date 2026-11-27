@@ -411,7 +411,8 @@ internal sealed class RemoteServer : IDisposable
                 if (head.Method == "GET" && path == "/")
                     await ServePageAsync(stream, host, ct).ConfigureAwait(false);
                 else if (head.Method == "GET" && (path == "/novo" || path == "/novo/"))
-                    await ServeNewPageAsync(stream, host, ct).ConfigureAwait(false);
+                    // Fase 17, D1: o endereço da prévia segue funcionando (atalhos da Tela de Início); sem corpo
+                    await WriteAsync(stream, 301, "text/plain; charset=utf-8", Array.Empty<byte>(), new[] { "Location: /" }, ct).ConfigureAwait(false);
                 else if (head.Method == "GET" && (path.StartsWith("/app/", StringComparison.Ordinal) || path.StartsWith("/fontes/", StringComparison.Ordinal)))
                     await ServeAssetAsync(stream, head, path, ct).ConfigureAwait(false);
                 else if (head.Method == "GET" && path == "/sessao")
@@ -492,6 +493,7 @@ internal sealed class RemoteServer : IDisposable
         101 => "Switching Protocols",
         200 => "OK",
         204 => "No Content",
+        301 => "Moved Permanently",
         304 => "Not Modified",
         400 => "Bad Request",
         401 => "Unauthorized",
@@ -530,32 +532,9 @@ internal sealed class RemoteServer : IDisposable
         await stream.FlushAsync(ct).ConfigureAwait(false);
     }
 
-    // ---- GET / ----
+    // ---- GET / (Fase 17, D1) ----
 
     private static async Task ServePageAsync(NetworkStream stream, string? host, CancellationToken ct)
-    {
-        // D7: a página antiga é a concatenação das partes, na ordem de WebAssets.OldPageParts
-        using var ms = new MemoryStream();
-        var asm = Assembly.GetExecutingAssembly();
-        foreach (var part in WebAssets.OldPageParts)
-        {
-            using var res = asm.GetManifestResourceStream(WebAssets.OldPagePrefix + part);
-            if (res is null)
-            {
-                await WriteAsync(stream, 404, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes("pagina indisponivel"), null, ct).ConfigureAwait(false);
-                return;
-            }
-            await res.CopyToAsync(ms, ct).ConfigureAwait(false);
-        }
-        await WriteAsync(stream, 200, "text/html; charset=utf-8", ms.ToArray(), CspHeader(host), ct).ConfigureAwait(false);
-    }
-
-    /// <summary>Cabeçalho da política de conteúdo das páginas (Fase 16, D6), com o Host já validado.</summary>
-    private static string[] CspHeader(string? host) => new[] { "Content-Security-Policy: " + RemoteRules.BuildCsp(host?.Trim()) };
-
-    // ---- GET /novo (Fase 14, D1) ----
-
-    private static async Task ServeNewPageAsync(NetworkStream stream, string? host, CancellationToken ct)
     {
         var bytes = await ReadResourceAsync(NewPageResource, ct).ConfigureAwait(false);
         if (bytes is null)
@@ -565,6 +544,9 @@ internal sealed class RemoteServer : IDisposable
         }
         await WriteAsync(stream, 200, "text/html; charset=utf-8", bytes, CspHeader(host), ct).ConfigureAwait(false);
     }
+
+    /// <summary>Cabeçalho da política de conteúdo das páginas (Fase 16, D6), com o Host já validado.</summary>
+    private static string[] CspHeader(string? host) => new[] { "Content-Security-Policy: " + RemoteRules.BuildCsp(host?.Trim()) };
 
     // ---- GET /app/* e /fontes/* (Fase 14, D1, D5, D6) ----
 
@@ -871,7 +853,7 @@ internal sealed class RemoteServer : IDisposable
             await WriteAsync(stream, 404, "text/plain; charset=utf-8", Array.Empty<byte>(), null, ct).ConfigureAwait(false);
             return;
         }
-        await WriteAsync(stream, 200, "image/png", png, new[] { "Cache-Control: private, max-age=3600" }, ct).ConfigureAwait(false);
+        await WriteAsync(stream, 200, "image/png", png, null, ct, "private, max-age=3600").ConfigureAwait(false);
     }
 
     // ---- GET /tela/ws (Fase 10, D1 a D4, D9) ----

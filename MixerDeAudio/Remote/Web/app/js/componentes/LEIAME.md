@@ -5,7 +5,7 @@ Regras de uso (partes 15a a 15d):
 - **Não altere os componentes.** Se faltar algo, avise na conferência.
 - Os métodos de atualização (`definir…`, `marcar`) nunca chamam os callbacks; os callbacks só disparam por toque do usuário.
 - `data-sem-gesto`: a barra, a faixa, o touchpad (e o cartão de app, por conter a barra) já vêm marcados e não deixam o gesto de arrastar para voltar começar sobre eles. Em qualquer outro elemento que precise de arrasto próprio, ponha `data-sem-gesto` na mão.
-- Cores só por tokens; a vibração de 8 ms (D9) já está no bloco e nos botões. Veja todos e as variantes na Galeria: `/novo#galeria`.
+- Cores só por tokens; a vibração de 8 ms (D9) já está no bloco e nos botões. A Galeria dos componentes saiu na Fase 17; esta lista é a documentação.
 - Ícones: `import { icone } from '../icones.js'` (nome → SVG); os componentes aceitam o nome (`'volume'`, `'power'`...).
 - Classes de layout prontas em `css/componentes.css`: `.linha-botoes` (botões em linha dividindo a largura) e `.chips`.
 

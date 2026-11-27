@@ -119,7 +119,7 @@ public class WebFront15aTests
     public void Opcoes_TemMaoUsadaEFavoritos()
     {
         var op = Js("opcoes");
-        Assert.Contains("export function criarGrupoMao", op);   // a Galeria usa
+        Assert.Contains("export function criarGrupoMao", op);   // usado pelas Opcoes
         Assert.Contains("'Favoritos do Início'", op);
         Assert.Contains("criarInterruptor(", op);
         Assert.Contains("CHAVE_FAVORITOS", op);

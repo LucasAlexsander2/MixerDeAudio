@@ -1,5 +1,5 @@
 // Tela Janelas (Fase 15d, D17): lista de janelas do PC com ícone, trazer para a frente, minimizar e fechar (com confirmação).
-// Funções e mensagens da página antiga (antigo/15-janelas.js): `janelas` (pede a lista), `janela` { id, acao } e a assinatura `janelas`.
+// Funções e mensagens da página antiga (página antiga, 15-janelas.js): `janelas` (pede a lista), `janela` { id, acao } e a assinatura `janelas`.
 import { criarCabecalho } from '../componentes/cabecalho.js';
 import { criarChip } from '../componentes/chip.js';
 import { criarBotao } from '../componentes/botao.js';

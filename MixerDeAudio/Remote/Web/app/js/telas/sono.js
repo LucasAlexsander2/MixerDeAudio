@@ -1,5 +1,5 @@
 // Tela Timer de sono (Fase 15b, D14): programa a hora em que a música para e mostra a contagem num anel.
-// Mensagens (antigo/14-sono.js): { t:'sono', min } (5 a 240) e { t:'sono', min:0 } para cancelar; o plano vem em estado.pc.sono { rest } (nulo = sem timer).
+// Mensagens (página antiga, 14-sono.js): { t:'sono', min } (5 a 240) e { t:'sono', min:0 } para cancelar; o plano vem em estado.pc.sono { rest } (nulo = sem timer).
 import { criarCabecalho } from '../componentes/cabecalho.js';
 import { criarBotao } from '../componentes/botao.js';
 import { criarGrupoChips } from '../componentes/chip.js';

@@ -1,6 +1,6 @@
 // Tela do PC (Fase 15c, D16): a imagem do PC com o touchpad dentro (nota "Tela do PC com touchpad"), modos Touchpad e Toque direto,
 // barra com teclado, modo, zoom, ponteiro, qualidade e tela cheia; deitado, o touchpad vira o painel de vidro.
-// Canal próprio /tela/ws (antigo/17-tela.js): um quadro por vez (a página manda {"ok":1} depois de desenhar), configuração
+// Canal próprio /tela/ws (página antiga, 17-tela.js): um quadro por vez (a página manda {"ok":1} depois de desenhar), configuração
 // {mon, w, q} mais {cur, p:1} (tamanho do ponteiro e posição dele antes de cada quadro, para o zoom seguir o ponteiro).
 // A tela só transmite enquanto está no topo da pilha e a página está visível. Contrato do ctx: telas/LEIAME.md.
 import { criarCabecalho } from '../componentes/cabecalho.js';

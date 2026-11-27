@@ -51,7 +51,7 @@ jobs:
         run: vpk download github --repoUrl ${{ env.REPO_URL }} --token ${{ secrets.GITHUB_TOKEN }}
 
       - name: Empacotar
-        run: vpk pack -u MixerDeAudioApp -v ${{ env.VERSAO }} -p publish -e MixerDeAudio.exe --packTitle "Mixer de Áudio" -i MixerDeAudio\Assets\MixerDeAudio.ico
+        run: vpk pack -u MixerDeAudioApp -v ${{ env.VERSAO }} -p publish -e MixerDeAudio.exe --packTitle "Controladora PC" -i MixerDeAudio\Assets\MixerDeAudio.ico
 
       - name: Enviar para o GitHub Releases
-        run: vpk upload github --repoUrl ${{ env.REPO_URL }} --publish --releaseName "Mixer de Áudio ${{ env.VERSAO }}" --tag v${{ env.VERSAO }} --token ${{ secrets.GITHUB_TOKEN }}
+        run: vpk upload github --repoUrl ${{ env.REPO_URL }} --publish --releaseName "Controladora PC ${{ env.VERSAO }}" --tag v${{ env.VERSAO }} --token ${{ secrets.GITHUB_TOKEN }}

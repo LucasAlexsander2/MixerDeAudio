@@ -1,4 +1,4 @@
-// Conexão com o PC e pareamento (D11), portados de antigo/05-conexao.js e antigo/06-pareamento.js com as mesmas regras:
+// Conexão com o PC e pareamento (D11), portados de 05-conexao.js da página antiga e 06-pareamento.js da página antiga com as mesmas regras:
 // /sessao 401 leva ao pareamento, qualquer outra falha fica em "Reconectando…" (espelha RemoteRules.DecidePage);
 // espera crescente de 0,5 s a 5 s (espelha RemoteRules.ReconnectDelayMs); 4000/4001 = desconectado; 4009/"ocupado" = ocupado;
 // reconecta ao voltar a ficar visível.

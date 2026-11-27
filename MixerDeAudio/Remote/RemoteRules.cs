@@ -147,7 +147,7 @@ public static class RemoteRules
     }
 
     /// <summary>
-    /// Fase 16, D6: política de conteúdo das páginas (<c>/</c> e <c>/novo</c>). <paramref name="host"/> é o <c>Host</c> já
+    /// Fase 16, D6: política de conteúdo das páginas (<c>/</c>). <paramref name="host"/> é o <c>Host</c> já
     /// validado por <see cref="HostAllowed"/>; se vier com algum caractere fora de letras, números, ponto, hífen, dois-pontos
     /// e colchetes, o <c>connect-src</c> fica só com <c>'self'</c>.
     /// </summary>
@@ -156,7 +156,7 @@ public static class RemoteRules
         var connect = "'self'";
         if (!string.IsNullOrEmpty(host) && host.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or ':' or '[' or ']' or '-'))
             connect += " ws://" + host;
-        return "frame-ancestors 'none'; default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+        return "frame-ancestors 'none'; default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
              + "img-src 'self' blob: data:; font-src 'self'; connect-src " + connect;
     }
 

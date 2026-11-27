@@ -1,5 +1,5 @@
 // Barra (guia 4.5, D24): trilho de 4 px, botão de 22 px, área de toque de 32 px e número em mono à direita.
-// Mesma regra de envio da página antiga (antigo/07-sliders.js):
+// Mesma regra de envio da página antiga (página antiga, 07-sliders.js):
 //  - no máximo 1 aoMudar a cada `intervaloMs` (50 ms) enquanto arrasta, sempre com o último valor;
 //  - ao soltar, aoMudar(valor, true) com o valor final;
 //  - o valor que vem do PC (definir) é ignorado enquanto o dedo está na barra e por `esperaMs` (500 ms) depois de soltar.
